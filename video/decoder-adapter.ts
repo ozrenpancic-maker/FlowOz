@@ -280,3 +280,26 @@ export function buildClip(
 export function decodeRequest(uri: string, plan: readonly PlannedPair[]): string {
   return JSON.stringify({ uri, plan });
 }
+
+const FALLBACK_BASE_URL = 'file:///android_asset/';
+
+/**
+ * Where the decoder page should claim to be loaded from.
+ *
+ * Loaded without a base URL the document gets an opaque origin, and Android's
+ * allowFileAccessFromFileURLs — which only ever applies to file-scheme
+ * documents — then does nothing, so drawing the persisted clip taints the
+ * canvas and getImageData is refused. Serving the page from the clip's own
+ * directory makes the two same-origin outright, rather than leaving the read to
+ * depend on a file-to-file access flag that newer WebView builds keep
+ * tightening.
+ *
+ * Anything without a directory to borrow — a content:// pick that was never
+ * copied into app storage — falls back, and fails loudly rather than quietly
+ * reading nothing.
+ */
+export function decoderBaseUrl(videoUri: string): string {
+  if (!videoUri.startsWith('file://')) return FALLBACK_BASE_URL;
+  const cut = videoUri.lastIndexOf('/');
+  return cut > 'file://'.length ? videoUri.slice(0, cut + 1) : FALLBACK_BASE_URL;
+}

@@ -4,6 +4,7 @@ import {
   collect,
   createCollector,
   decodeRequest,
+  decoderBaseUrl,
   framePairFromMessage,
   parseDecoderMessage,
 } from '../../video/decoder-adapter';
@@ -288,6 +289,18 @@ describe('decoder bootstrap', () => {
     // A tainted canvas throws at getImageData, which is not a seek problem.
     expect(html).toContain("blocked.code = 'FRAME_READ_BLOCKED'");
     expect(html).toContain('(error && error.code) || ');
+  });
+
+  it('serves the decoder page from the directory the clip lives in', () => {
+    // Same directory means same origin, so the canvas read needs no file-access
+    // flag to be granted.
+    expect(decoderBaseUrl('file:///data/user/0/com.flowvision.field/files/media/clip.mp4')).toBe(
+      'file:///data/user/0/com.flowvision.field/files/media/'
+    );
+    // Nothing with a directory to borrow falls back rather than guessing.
+    expect(decoderBaseUrl('content://media/external/video/42')).toBe('file:///android_asset/');
+    expect(decoderBaseUrl('file://clip.mp4')).toBe('file:///android_asset/');
+    expect(decoderBaseUrl('')).toBe('file:///android_asset/');
   });
 
   it('reports the times the player reached, not the times it was asked for', () => {

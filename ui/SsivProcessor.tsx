@@ -8,6 +8,7 @@ import {
   collect,
   createCollector,
   decodeRequest,
+  decoderBaseUrl,
   parseDecoderMessage,
   type DecoderCollectorState,
 } from '../video/decoder-adapter';
@@ -38,15 +39,6 @@ export interface SsivRequest {
 export type SsivProgress = 'idle' | 'decoding' | 'analysing';
 
 const WATCHDOG_MS = 90_000;
-
-/**
- * The decoder page must itself be served from a file:// origin. Loaded without
- * a base URL the document gets an opaque origin, and Android's
- * allowFileAccessFromFileURLs — which only ever applies to file-scheme
- * documents — then does nothing, so drawing the persisted file:// clip taints
- * the canvas and getImageData is refused.
- */
-const DECODER_BASE_URL = 'file:///android_asset/';
 
 export function SsivProcessor({
   request,
@@ -147,7 +139,7 @@ export function SsivProcessor({
       <WebView
         ref={webViewRef}
         key={request.id}
-        source={{ html, baseUrl: DECODER_BASE_URL }}
+        source={{ html, baseUrl: decoderBaseUrl(request.videoUri) }}
         originWhitelist={['*']}
         allowFileAccess
         allowFileAccessFromFileURLs
