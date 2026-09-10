@@ -88,6 +88,12 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "owner": "ozren1983",
+    "extra": {
+      "eas": {
+        "projectId": "dca30216-1056-4c1d-b155-09999df2a777"
+      }
     }
   }
 }
