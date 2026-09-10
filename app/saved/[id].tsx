@@ -1,0 +1,356 @@
+import { useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
+
+import type { SavedMeasurement } from '../../domain/measurement';
+import { classifyAccuracy } from '../../domain/gps';
+import { formatNumber } from '../../domain/units';
+import { buildReportModel, exportFileName } from '../../reports/report-model';
+import { generatePdf } from '../../reports/pdf';
+import { toCsv } from '../../reports/csv';
+import { saveFileWithSaf, saveTextWithSaf, shareFile, writeTempTextFile } from '../../reports/android-share';
+import { mediaExists } from '../../storage/media-storage';
+import { useMeasurement } from '../../state/measurement-context';
+import { useSettings } from '../../state/settings-context';
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorBlock,
+  Muted,
+  Note,
+  Screen,
+  SectionTitle,
+  ValueRow,
+} from '../../ui/components';
+import { colors, gradeTone, radius, spacing, typography } from '../../ui/theme';
+
+export default function MeasurementDetailScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { t, repository, ready, settings } = useSettings();
+  const { startRetry } = useMeasurement();
+
+  const [measurement, setMeasurement] = useState<SavedMeasurement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [videoPresent, setVideoPresent] = useState<boolean | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!ready || !id) return;
+    try {
+      const record = await repository.getMeasurement(id);
+      setMeasurement(record);
+      setError(null);
+      if (record?.videoUri) setVideoPresent(await mediaExists(record.videoUri));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [ready, id, repository]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const player = useVideoPlayer(
+    measurement?.videoUri && videoPresent ? measurement.videoUri : null,
+    (instance) => {
+      instance.loop = true;
+      instance.muted = true;
+    }
+  );
+
+  const exportPdf = async (share: boolean) => {
+    if (!measurement || busy) return;
+    setBusy('pdf');
+    setNote(null);
+    setError(null);
+    try {
+      const model = buildReportModel(measurement, settings);
+      const pdf = await generatePdf(model, t);
+      if (!pdf.ok) {
+        setError(`${t(pdf.error.messageKey)} — ${pdf.error.detail}`);
+        return;
+      }
+      const fileName = exportFileName(measurement, 'pdf');
+      if (share) {
+        const shared = await shareFile(pdf.uri, 'application/pdf', t('saved.sharePdf'));
+        setNote(shared.ok ? t('export.saved') : t(shared.error.messageKey));
+        return;
+      }
+      const outcome = await saveFileWithSaf(pdf.uri, fileName);
+      if (!outcome.ok) {
+        setError(`${t(outcome.error.messageKey)} — ${outcome.error.detail}`);
+        return;
+      }
+      setNote('cancelled' in outcome ? t('export.cancelled') : t('export.saved'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const exportCsv = async (share: boolean) => {
+    if (!measurement || busy) return;
+    setBusy('csv');
+    setNote(null);
+    setError(null);
+    try {
+      const csv = toCsv([measurement], settings.csvFormat);
+      const fileName = exportFileName(measurement, 'csv');
+      if (share) {
+        const temp = await writeTempTextFile(fileName, csv);
+        if (!temp) {
+          setError('cache directory unavailable');
+          return;
+        }
+        const shared = await shareFile(temp, 'text/csv', t('saved.shareCsv'));
+        setNote(shared.ok ? t('export.saved') : t(shared.error.messageKey));
+        return;
+      }
+      const outcome = await saveTextWithSaf(fileName, csv);
+      if (!outcome.ok) {
+        setError(`${t(outcome.error.messageKey)} — ${outcome.error.detail}`);
+        return;
+      }
+      setNote('cancelled' in outcome ? t('export.cancelled') : t('export.saved'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    if (!measurement || busy) return;
+    setBusy('delete');
+    setError(null);
+    try {
+      const result = await repository.deleteMeasurement(measurement.id);
+      // Media is only released when no other saved record still points at it.
+      setNote(result.orphanedMedia.length > 0 ? t('saved.mediaOrphaned') : t('saved.mediaKept'));
+      router.back();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (error && !measurement) {
+    return (
+      <Screen>
+        <ErrorBlock title={t('common.error')} detail={error} detailLabel={t('common.technicalDetail')} />
+      </Screen>
+    );
+  }
+  if (!measurement) {
+    return (
+      <Screen>
+        <Muted>{t('common.loading')}</Muted>
+      </Screen>
+    );
+  }
+
+  const analysis = measurement.videoAnalysis;
+
+  return (
+    <Screen>
+      <View style={styles.header}>
+        <Text style={styles.id}>{measurement.displayId ?? measurement.id}</Text>
+        <Badge label={measurement.confidence} tone={gradeTone(measurement.confidence)} />
+      </View>
+      <Muted>
+        {measurement.createdAt} · {measurement.siteName ?? t('measure.oneOff')} ·{' '}
+        {measurement.processingStatus}
+      </Muted>
+
+      {error ? (
+        <ErrorBlock title={t('common.error')} detail={error} detailLabel={t('common.technicalDetail')} />
+      ) : null}
+      {note ? <Note tone="pass">{note}</Note> : null}
+
+      <SectionTitle>{t('report.section.result')}</SectionTitle>
+      <Card tone={gradeTone(measurement.confidence)}>
+        <ValueRow
+          label={t('report.flowM3s')}
+          value={typeof measurement.flowM3s === 'number' ? formatNumber(measurement.flowM3s, 5) : t('common.withheld')}
+          unit={typeof measurement.flowM3s === 'number' ? 'm³/s' : undefined}
+          withheld={typeof measurement.flowM3s !== 'number'}
+          provenance={t('provenance.calculated')}
+        />
+        <ValueRow label={t('report.meanVelocity')} value={formatNumber(measurement.velocity ?? null, 4)} unit="m/s" />
+        <ValueRow label={t('report.area')} value={formatNumber(measurement.area ?? null, 5)} unit="m²" />
+        <ValueRow label={t('report.depth')} value={formatNumber(measurement.depth, 4)} unit="m" />
+        {measurement.fillRatio !== undefined ? (
+          <ValueRow label={t('report.fillRatio')} value={formatNumber(measurement.fillRatio, 3)} />
+        ) : null}
+        <ValueRow label={t('quality.uncertainty')} value={measurement.dataQuality.uncertainty} withheld />
+      </Card>
+
+      <SectionTitle>{t('report.section.quality')}</SectionTitle>
+      <Card>
+        <ValueRow
+          label={t('report.geometryQuality')}
+          value={measurement.dataQuality.geometry.grade}
+          detail={t(measurement.dataQuality.geometry.reasonKey)}
+          tone={gradeTone(measurement.dataQuality.geometry.grade)}
+        />
+        <ValueRow
+          label={t('report.levelQuality')}
+          value={measurement.dataQuality.level.grade}
+          detail={t(measurement.dataQuality.level.reasonKey)}
+          tone={gradeTone(measurement.dataQuality.level.grade)}
+        />
+        <ValueRow
+          label={t('report.velocityQuality')}
+          value={measurement.dataQuality.velocity.grade}
+          detail={t(measurement.dataQuality.velocity.reasonKey)}
+          tone={gradeTone(measurement.dataQuality.velocity.grade)}
+        />
+      </Card>
+
+      {measurement.location ? (
+        <>
+          <SectionTitle>{t('report.section.location')}</SectionTitle>
+          <Card>
+            <ValueRow label={t('report.latitude')} value={formatNumber(measurement.location.latitude, 6)} unit="°" />
+            <ValueRow label={t('report.longitude')} value={formatNumber(measurement.location.longitude, 6)} unit="°" />
+            <ValueRow
+              label={t('gps.accuracy')}
+              value={`${formatNumber(measurement.location.accuracy ?? null, 1)} m · ${t(
+                `gps.class.${classifyAccuracy(measurement.location.accuracy)}`
+              )}`}
+            />
+          </Card>
+        </>
+      ) : null}
+
+      {measurement.method === 'video' ? (
+        <>
+          <SectionTitle>{t('video.title')}</SectionTitle>
+          <Badge label={t('video.experimentalBadge')} tone="experimental" />
+          <Card>
+            <ValueRow
+              label={t('video.surfaceVelocity')}
+              value={formatNumber(measurement.surfaceVelocity ?? null, 4)}
+              unit="m/s"
+              provenance={t('provenance.measuredVideo')}
+            />
+            <ValueRow
+              label={t('video.alphaUsed')}
+              value={formatNumber(measurement.alpha ?? null, 3)}
+              provenance={t(`provenance.${measurement.provenance.alpha.toLowerCase()}`)}
+            />
+            {analysis ? (
+              <>
+                <ValueRow
+                  label={t('video.acceptedVectors')}
+                  value={`${analysis.quality.acceptedVectors}/${analysis.quality.totalVectors}`}
+                  detail={`${Math.round(analysis.quality.acceptanceRatio * 100)}%`}
+                />
+                <ValueRow
+                  label={t('video.stablePairs')}
+                  value={`${analysis.quality.stablePairs}/${analysis.quality.totalPairs}`}
+                />
+                <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} />
+                <ValueRow
+                  label={t('video.cameraCompensation')}
+                  value={formatNumber(analysis.quality.cameraCompensationPx, 2)}
+                  unit="px"
+                />
+              </>
+            ) : null}
+            {measurement.perspectiveScale ? (
+              <>
+                <ValueRow label={t('video.roiWidth')} value={formatNumber(measurement.perspectiveScale.widthM, 3)} unit="m" />
+                <ValueRow label={t('video.roiLength')} value={formatNumber(measurement.perspectiveScale.lengthM, 3)} unit="m" />
+              </>
+            ) : null}
+          </Card>
+
+          {measurement.videoUri ? (
+            videoPresent === false ? (
+              <Note tone="warning">{t('saved.videoMissing')}</Note>
+            ) : (
+              <>
+                <Muted>{t('saved.videoPreview')}</Muted>
+                <View style={styles.videoFrame}>
+                  <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="contain" />
+                </View>
+              </>
+            )
+          ) : null}
+
+          <Button
+            label={t('video.retry')}
+            hint={t('video.retryHint')}
+            variant="secondary"
+            disabled={!measurement.videoUri || videoPresent === false}
+            onPress={() => {
+              // The stored record is left untouched; the retry works on a new draft.
+              startRetry(measurement);
+              router.push('/video');
+            }}
+          />
+        </>
+      ) : null}
+
+      <SectionTitle>{t('saved.rawEvidence')}</SectionTitle>
+      <Button
+        label={showRaw ? t('common.close') : t('saved.rawEvidence')}
+        variant="secondary"
+        onPress={() => setShowRaw((current) => !current)}
+      />
+      {showRaw ? (
+        <View style={styles.rawBox}>
+          <Text style={styles.raw}>{JSON.stringify(measurement.raw, null, 2)}</Text>
+        </View>
+      ) : null}
+
+      <SectionTitle>{t('report.title')}</SectionTitle>
+      <Button label={t('saved.exportPdf')} onPress={() => exportPdf(false)} busy={busy === 'pdf'} disabled={busy !== null} />
+      <Button label={t('saved.sharePdf')} variant="secondary" onPress={() => exportPdf(true)} disabled={busy !== null} />
+      <Button label={t('saved.exportCsv')} onPress={() => exportCsv(false)} busy={busy === 'csv'} disabled={busy !== null} />
+      <Button label={t('saved.shareCsv')} variant="secondary" onPress={() => exportCsv(true)} disabled={busy !== null} />
+
+      <SectionTitle>{t('common.delete')}</SectionTitle>
+      <Note tone="warning">{t('saved.deleteWarning')}</Note>
+      {confirmingDelete ? (
+        <>
+          <Button label={t('saved.deleteConfirm')} variant="danger" onPress={remove} busy={busy === 'delete'} />
+          <Button label={t('common.cancel')} variant="secondary" onPress={() => setConfirmingDelete(false)} />
+        </>
+      ) : (
+        <Button label={t('common.delete')} variant="danger" onPress={() => setConfirmingDelete(true)} />
+      )}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+  id: { ...typography.mono, color: colors.accent, fontSize: 16 },
+  videoFrame: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  rawBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  raw: { fontSize: 10, fontFamily: 'monospace', color: colors.textMuted },
+});
