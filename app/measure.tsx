@@ -6,8 +6,23 @@ import { calculate, buildSavedMeasurement, type CalculationOutcome } from '../do
 import { createDisplayId, createId } from '../domain/ids';
 import { maximumDepth } from '../domain/geometry';
 import { activeAlpha } from '../domain/calibration';
+import { classifyAccuracy, compareWithSite, type GpsAccuracyClass } from '../domain/gps';
+import {
+  CUSTOM_ROUGHNESS_ID,
+  ROUGHNESS_MATERIALS,
+  findMaterial,
+  isOutsideBand,
+  materialLabelKey,
+} from '../domain/roughness';
 import type { Dimensions, LengthUnit, Site, VelocityMethod } from '../domain/types';
-import { formatNumber, fromMetres, parseNumericInput, toMetres } from '../domain/units';
+import {
+  degreesToPermille,
+  formatNumber,
+  fromMetres,
+  permilleToDegrees,
+  toMetres,
+  type SlopeUnit,
+} from '../domain/units';
 import { captureGps } from '../state/gps-capture';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
@@ -17,15 +32,16 @@ import {
   Card,
   Choice,
   ErrorBlock,
-  Field,
   Muted,
+  NumberField,
   Note,
   Screen,
   SectionTitle,
+  Select,
   Toggle,
   ValueRow,
 } from '../ui/components';
-import { colors, gradeTone, spacing, typography } from '../ui/theme';
+import { colors, gradeTone, spacing, typography, type QualityTone } from '../ui/theme';
 
 type Step = 'site' | 'geometry' | 'level' | 'velocity' | 'review' | 'result';
 
@@ -38,6 +54,13 @@ const STEP_TITLE_KEY: Record<Step, string> = {
   velocity: 'measure.step.velocity',
   review: 'measure.step.review',
   result: 'measure.step.result',
+};
+
+const GPS_TONES: Record<GpsAccuracyClass, QualityTone> = {
+  GOOD: 'pass',
+  ACCEPTABLE: 'neutral',
+  POOR: 'warning',
+  UNKNOWN: 'neutral',
 };
 
 export default function MeasureScreen() {
@@ -55,6 +78,36 @@ export default function MeasureScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [gpsNote, setGpsNote] = useState<string | null>(null);
+  const [capturingGps, setCapturingGps] = useState(false);
+  // A draft started from a site arrives with the site's stored position, which
+  // is not the same claim as a fix taken here and must not be labelled as one.
+  const [liveFix, setLiveFix] = useState(false);
+
+  // An explicit fix, so the operator sees the position and its accuracy before
+  // saving rather than discovering it in the report afterwards.
+  const captureGpsNow = useCallback(async () => {
+    setCapturingGps(true);
+    try {
+      const fix = await captureGps();
+      if (fix.ok) {
+        patchDraft({ location: fix.location });
+        setLiveFix(true);
+        setGpsNote(null);
+      } else {
+        setGpsNote(`${t('measure.gpsFailed')} ${t(fix.reasonKey)}`);
+      }
+    } finally {
+      setCapturingGps(false);
+    }
+  }, [patchDraft, t]);
+
+  const gpsClass = classifyAccuracy(draft.location?.accuracy);
+  const siteDistance = useMemo(() => {
+    if (!liveFix || !draft.location || !draft.siteId) return null;
+    const site = sites?.find((entry) => entry.id === draft.siteId);
+    if (!site?.location) return null;
+    return compareWithSite(draft.location, site.location, settings.siteDistanceWarningM);
+  }, [liveFix, draft.location, draft.siteId, sites, settings.siteDistanceWarningM]);
 
   // Load sites lazily, only when the site step is actually shown.
   const loadSites = useCallback(async () => {
@@ -199,6 +252,13 @@ export default function MeasureScreen() {
         <ValueRow label={t('report.method')} value={t(`measure.method.${draft.method}`)} />
         {draft.method === 'manning' ? (
           <>
+            {draft.material ? (
+              <ValueRow
+                label={t('measure.material')}
+                value={t(materialLabelKey(draft.material))}
+                provenance={t('provenance.entered')}
+              />
+            ) : null}
             <ValueRow label={t('measure.roughness')} value={formatNumber(draft.roughness, 4)} provenance={t('provenance.assumed')} />
             <ValueRow label={t('measure.slopePermille')} value={formatNumber(draft.slopePermille, 3)} unit="‰" provenance={t('provenance.entered')} />
           </>
@@ -223,6 +283,49 @@ export default function MeasureScreen() {
             <Badge label={t('video.experimentalBadge')} tone="experimental" />
           </>
         ) : null}
+      </Card>
+
+      <Card>
+        <SectionTitle>{t('gps.title')}</SectionTitle>
+        {draft.location ? (
+          <>
+            <ValueRow
+              label={t('report.latitude')}
+              value={draft.location.latitude.toFixed(6)}
+              unit="°"
+              provenance={liveFix ? t('provenance.measured') : t('provenance.site')}
+            />
+            <ValueRow
+              label={t('report.longitude')}
+              value={draft.location.longitude.toFixed(6)}
+              unit="°"
+              provenance={liveFix ? t('provenance.measured') : t('provenance.site')}
+            />
+            <ValueRow
+              label={t('gps.accuracy')}
+              value={formatNumber(draft.location.accuracy ?? null, 1)}
+              unit="m"
+            />
+            <Badge
+              label={t(`gps.class.${gpsClass}`)}
+              tone={GPS_TONES[gpsClass]}
+            />
+            {siteDistance?.exceedsThreshold ? (
+              <Note tone="warning">
+                {t('gps.distanceWarning')} {siteDistance.distanceM.toFixed(0)} m
+              </Note>
+            ) : null}
+          </>
+        ) : (
+          <Muted>{t('gps.notCaptured')}</Muted>
+        )}
+        <Button
+          label={capturingGps ? t('gps.capturing') : t('gps.capture')}
+          variant="secondary"
+          disabled={capturingGps}
+          onPress={() => void captureGpsNow()}
+        />
+        {gpsNote ? <Note tone="warning">{gpsNote}</Note> : null}
       </Card>
 
       {calculation.ok && calculation.value.plausibility.advisories.length > 0 ? (
@@ -388,14 +491,14 @@ function GeometryStep({
     apply: (nextMetres: number) => void,
     hint?: string
   ) => (
-    <Field
+    <NumberField
       label={label}
       unit={unit}
-      value={metres > 0 ? String(round(fromMetres(metres, unit), 4)) : ''}
+      value={metres > 0 ? fromMetres(metres, unit) : null}
+      decimals={4}
       hint={hint}
-      onChangeText={(text) => {
-        const parsed = parseNumericInput(text);
-        apply(parsed === null ? 0 : toMetres(parsed, unit));
+      onChange={(next) => {
+        apply(next === null ? 0 : toMetres(next, unit));
       }}
     />
   );
@@ -499,12 +602,6 @@ function GeometryStep({
         </>
       ) : null}
 
-      <Field
-        label={t('measure.material')}
-        keyboardType="default"
-        value={draft.material ?? ''}
-        onChangeText={(text) => patchDraft({ material: text })}
-      />
       <Button label={t('common.next')} onPress={onNext} />
     </>
   );
@@ -525,10 +622,10 @@ function SlopeEditor({
 }) {
   const current =
     slope.mode === 'ratio'
-      ? String(slope.value)
+      ? slope.value
       : slope.mode === 'angle'
-        ? String(slope.degrees)
-        : String(round(fromMetres(slope.length, unit), 4));
+        ? slope.degrees
+        : fromMetres(slope.length, unit);
 
   return (
     <Card>
@@ -546,13 +643,13 @@ function SlopeEditor({
           { value: 'wettedLength' as const, label: t('measure.slopeMode.wettedLength') },
         ]}
       />
-      <Field
+      <NumberField
         label={t(`measure.slopeMode.${slope.mode}`)}
         unit={slope.mode === 'angle' ? '°' : slope.mode === 'wettedLength' ? unit : undefined}
         value={current}
-        onChangeText={(text) => {
-          const parsed = parseNumericInput(text);
-          const value = parsed ?? 0;
+        decimals={4}
+        onChange={(next) => {
+          const value = next ?? 0;
           if (slope.mode === 'ratio') onChange({ mode: 'ratio', value });
           else if (slope.mode === 'angle') onChange({ mode: 'angle', degrees: value });
           else onChange({ mode: 'wettedLength', length: toMetres(value, unit) });
@@ -592,19 +689,19 @@ function LevelStep({
             : []),
         ]}
       />
-      <Field
+      <NumberField
         label={t('measure.depth')}
         unit={unit}
-        value={draft.depth !== null ? String(round(fromMetres(draft.depth, unit), 4)) : ''}
+        value={draft.depth !== null ? fromMetres(draft.depth, unit) : null}
+        decimals={4}
         invalid={draft.depth !== null && maximum !== null && draft.depth >= maximum}
         hint={
           maximum !== null
             ? `0 < h < ${formatNumber(fromMetres(maximum, unit), 3)} ${unit}`
             : undefined
         }
-        onChangeText={(text) => {
-          const parsed = parseNumericInput(text);
-          patchDraft({ depth: parsed === null ? null : toMetres(parsed, unit) });
+        onChange={(next) => {
+          patchDraft({ depth: next === null ? null : toMetres(next, unit) });
         }}
       />
       {draft.levelMethod === 'camera-assisted' ? (
@@ -633,6 +730,37 @@ function VelocityStep({
   onOpenVideo: () => void;
   onNext: () => void;
 }) {
+  const materialOptions = useMemo(
+    () => [
+      ...ROUGHNESS_MATERIALS.map((material) => ({
+        value: material.id,
+        label: t(materialLabelKey(material.id)),
+        detail: `n = ${material.n.toFixed(3)}  (${material.minN.toFixed(3)}–${material.maxN.toFixed(3)})`,
+        group: t(`material.group.${material.group}`),
+      })),
+      { value: CUSTOM_ROUGHNESS_ID, label: t('material.custom') },
+    ],
+    [t]
+  );
+  const slopeUnit: SlopeUnit = draft.slopeUnit ?? 'permille';
+  const slopeInUnit =
+    draft.slopePermille === null
+      ? null
+      : slopeUnit === 'degrees'
+        ? permilleToDegrees(draft.slopePermille)
+        : draft.slopePermille;
+  // Both readings of the same gradient, so switching units is never a guess.
+  const slopeHint =
+    draft.slopePermille === null
+      ? 'S = ‰ / 1000'
+      : `${formatNumber(draft.slopePermille, 3)} ‰ · ${formatNumber(permilleToDegrees(draft.slopePermille), 4)}° · S = ${formatNumber(draft.slopePermille / 1000, 6)}`;
+
+  const selectedMaterial = findMaterial(draft.material);
+  const roughnessOutsideBand =
+    selectedMaterial !== null &&
+    typeof draft.roughness === 'number' &&
+    isOutsideBand(selectedMaterial, draft.roughness);
+
   const hasSurfaceVelocity = hasAnalysis || draft.surfaceVelocity !== undefined;
 
   return (
@@ -650,27 +778,61 @@ function VelocityStep({
 
       {draft.method === 'manning' ? (
         <>
-          <Field
-            label={t('measure.roughness')}
-            value={draft.roughness !== null ? String(draft.roughness) : ''}
-            onChangeText={(text) => patchDraft({ roughness: parseNumericInput(text) })}
+          <Select
+            label={t('measure.material')}
+            value={draft.material ?? null}
+            placeholder={t('measure.materialPlaceholder')}
+            hint={t('measure.materialHint')}
+            options={materialOptions}
+            onChange={(id) => {
+              const picked = findMaterial(id);
+              patchDraft({ material: id, ...(picked ? { roughness: picked.n } : {}) });
+            }}
           />
-          <Field
-            label={t('measure.slopePermille')}
-            unit={t('measure.slopeUnit')}
-            value={draft.slopePermille !== null ? String(draft.slopePermille) : ''}
-            hint="S = ‰ / 1000"
-            onChangeText={(text) => patchDraft({ slopePermille: parseNumericInput(text) })}
+          <NumberField
+            label={t('measure.roughness')}
+            value={draft.roughness}
+            hint={
+              selectedMaterial
+                ? `${t('measure.roughnessBand')}: ${selectedMaterial.minN.toFixed(3)}–${selectedMaterial.maxN.toFixed(3)}`
+                : undefined
+            }
+            onChange={(next) => patchDraft({ roughness: next })}
+          />
+          {roughnessOutsideBand ? (
+            <Note tone="warning">{t('measure.roughnessOutsideBand')}</Note>
+          ) : null}
+          <Choice
+            label={t('measure.slopeUnitLabel')}
+            value={slopeUnit}
+            onChange={(next: SlopeUnit) => patchDraft({ slopeUnit: next })}
+            options={[
+              { value: 'permille' as const, label: t('measure.slopeUnit.permille') },
+              { value: 'degrees' as const, label: t('measure.slopeUnit.degrees') },
+            ]}
+          />
+          <NumberField
+            label={t(`measure.slope.${slopeUnit}`)}
+            unit={slopeUnit === 'degrees' ? '°' : '‰'}
+            value={slopeInUnit}
+            decimals={slopeUnit === 'degrees' ? 4 : 3}
+            hint={slopeHint}
+            onChange={(next) =>
+              patchDraft({
+                slopePermille:
+                  next === null ? null : slopeUnit === 'degrees' ? degreesToPermille(next) : next,
+              })
+            }
           />
         </>
       ) : null}
 
       {draft.method === 'manual' ? (
-        <Field
+        <NumberField
           label={t('measure.manualVelocity')}
           unit="m/s"
-          value={draft.manualVelocity !== null ? String(draft.manualVelocity) : ''}
-          onChangeText={(text) => patchDraft({ manualVelocity: parseNumericInput(text) })}
+          value={draft.manualVelocity}
+          onChange={(next) => patchDraft({ manualVelocity: next })}
         />
       ) : null}
 
@@ -744,10 +906,6 @@ function describeSlopeShort(slope: Extract<Dimensions, { kind: 'trapezoidal' }>[
   return `L=${formatNumber(slope.length, 3)} m`;
 }
 
-function round(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
-}
 
 const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },

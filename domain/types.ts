@@ -1,4 +1,4 @@
-import type { LengthUnit } from './units';
+import type { LengthUnit, SlopeUnit } from './units';
 
 export type { LengthUnit };
 
@@ -156,8 +156,10 @@ export interface MeasurementDraft {
   material?: string;
   /** Manning roughness n [-]. */
   roughness: number | null;
-  /** Hydraulic gradient as entered by the operator [‰]. */
+  /** Hydraulic gradient, always stored in ‰ whatever it was entered in. */
   slopePermille: number | null;
+  /** The unit the gradient is entered and shown in. Display only. */
+  slopeUnit?: SlopeUnit;
   /** Mean velocity for the manual method [m/s]. */
   manualVelocity: number | null;
   /** Camera-assisted level evidence. */

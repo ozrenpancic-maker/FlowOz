@@ -32,6 +32,13 @@ export const SSIV_THRESHOLDS = Object.freeze({
   /** Allowed spacing between the two frames of a pair [s]. */
   minFrameDeltaS: 0.06,
   maxFrameDeltaS: 0.16,
+  /**
+   * How far the spacing the decoder achieved may drift from the one the plan
+   * asked for before the pair is discarded. A seek lands on the nearest
+   * decodable frame, so some drift is normal; past this the pair would put a
+   * timing error straight into the velocity.
+   */
+  maxFrameDeltaDeviationFraction: 0.5,
   /** Smallest usable ROI, as a fraction of the frame area. */
   minRoiAreaFraction: 0.02,
   /** Interrogation window and search radius, in working-resolution pixels. */

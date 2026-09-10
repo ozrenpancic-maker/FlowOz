@@ -1,7 +1,7 @@
 import { bytesToLuminance, decodeBase64 } from './base64';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import type { PlannedPair } from './frame-plan';
-import type { DecodedClip, FramePair } from './types';
+import { SSIV_THRESHOLDS, type DecodedClip, type FramePair } from './types';
 
 /**
  * Contract between the WebView frame extractor and the React Native side.
@@ -25,9 +25,13 @@ export type DecoderMessage =
   | {
       type: 'pair';
       index: number;
+      /** Times the player actually landed on [s]. */
       firstS: number;
       secondS: number;
+      /** Measured spacing, `secondS - firstS` [s]. */
       frameDeltaS: number;
+      /** Spacing the plan asked for, for comparison [s]. */
+      plannedDeltaS?: number;
       width: number;
       height: number;
       first: string;
@@ -73,12 +77,16 @@ export function parseDecoderMessage(raw: string): DecoderMessage | null {
         return null;
       }
       if (typeof m.first !== 'string' || typeof m.second !== 'string') return null;
+      const planned = m.plannedDeltaS;
       return {
         type: 'pair',
         index: m.index as number,
         firstS: m.firstS as number,
         secondS: m.secondS as number,
         frameDeltaS: m.frameDeltaS as number,
+        ...(typeof planned === 'number' && Number.isFinite(planned)
+          ? { plannedDeltaS: planned }
+          : {}),
         width: m.width as number,
         height: m.height as number,
         first: m.first,
@@ -102,23 +110,70 @@ export function parseDecoderMessage(raw: string): DecoderMessage | null {
   }
 }
 
+/**
+ * The outcome of turning one `pair` message into a frame pair.
+ *
+ * A malformed payload is fatal — the decoder is not doing what it claims. A
+ * pair whose two frames did not end up spaced the way the plan asked is only
+ * unusable: the seek landed on a neighbouring frame, which says nothing about
+ * the other pairs, so it is dropped and the run continues on the rest.
+ */
+export type FramePairOutcome =
+  | { ok: true; pair: FramePair }
+  | { ok: false; fatal: true; failure: SsivFailure }
+  | { ok: false; fatal: false; detail: string };
+
 /** Turn one `pair` message into a frame pair, or explain why it cannot be. */
 export function framePairFromMessage(
   message: Extract<DecoderMessage, { type: 'pair' }>
-): { ok: true; pair: FramePair } | { ok: false; failure: SsivFailure } {
+): FramePairOutcome {
   const expected = message.width * message.height;
+
+  if (!Number.isFinite(message.frameDeltaS) || message.frameDeltaS <= 0) {
+    return {
+      ok: false,
+      fatal: false,
+      detail: `pair ${message.index}: both seeks landed on the same frame (Δt=${message.frameDeltaS}s)`,
+    };
+  }
+
+  const reference = message.plannedDeltaS;
+  if (reference !== undefined && reference > 0) {
+    const deviation = Math.abs(message.frameDeltaS - reference) / reference;
+    if (deviation > SSIV_THRESHOLDS.maxFrameDeltaDeviationFraction) {
+      return {
+        ok: false,
+        fatal: false,
+        detail:
+          `pair ${message.index}: Δt=${message.frameDeltaS.toFixed(4)}s against a planned ` +
+          `${reference.toFixed(4)}s (${(deviation * 100).toFixed(0)}% off)`,
+      };
+    }
+  } else if (
+    message.frameDeltaS < SSIV_THRESHOLDS.minFrameDeltaS / 2 ||
+    message.frameDeltaS > SSIV_THRESHOLDS.maxFrameDeltaS * 2
+  ) {
+    return {
+      ok: false,
+      fatal: false,
+      detail: `pair ${message.index}: Δt=${message.frameDeltaS.toFixed(4)}s is outside the usable band`,
+    };
+  }
+
   const first = decodeBase64(message.first);
   const second = decodeBase64(message.second);
 
   if (!first || !second) {
     return {
       ok: false,
+      fatal: true,
       failure: ssivFailure('VIDEO_DECODE_FAILURE', `pair ${message.index}: base64 is not decodable`),
     };
   }
   if (first.length !== expected || second.length !== expected) {
     return {
       ok: false,
+      fatal: true,
       failure: ssivFailure(
         'VIDEO_DECODE_FAILURE',
         `pair ${message.index}: got ${first.length}/${second.length} samples, expected ${expected}`
@@ -142,12 +197,14 @@ export function framePairFromMessage(
 export interface DecoderCollectorState {
   meta?: Extract<DecoderMessage, { type: 'meta' }>;
   pairs: FramePair[];
+  /** Why each unusable pair was dropped, kept for the failure detail. */
+  dropped: string[];
   finished: boolean;
   failure?: SsivFailure;
 }
 
 export function createCollector(): DecoderCollectorState {
-  return { pairs: [], finished: false };
+  return { pairs: [], dropped: [], finished: false };
 }
 
 /**
@@ -164,8 +221,12 @@ export function collect(state: DecoderCollectorState, message: DecoderMessage): 
     case 'pair': {
       const result = framePairFromMessage(message);
       if (!result.ok) {
-        state.failure = result.failure;
-        state.finished = true;
+        if (result.fatal) {
+          state.failure = result.failure;
+          state.finished = true;
+        } else {
+          state.dropped.push(result.detail);
+        }
         return state;
       }
       state.pairs.push(result.pair);
@@ -191,7 +252,15 @@ export function buildClip(
     return { ok: false, failure: ssivFailure('VIDEO_DECODE_FAILURE', 'no video metadata received') };
   }
   if (state.pairs.length === 0) {
-    return { ok: false, failure: ssivFailure('VIDEO_DECODE_FAILURE', 'no frame pair was extracted') };
+    return {
+      ok: false,
+      failure: ssivFailure(
+        'VIDEO_DECODE_FAILURE',
+        state.dropped.length > 0
+          ? `every frame pair was mistimed — ${state.dropped.join('; ')}`
+          : 'no frame pair was extracted'
+      ),
+    };
   }
 
   return {

@@ -230,7 +230,12 @@ describe('sites and settings', () => {
     expect(stored.defaultAlpha).toBe(DEFAULT_SETTINGS.defaultAlpha);
 
     // A document written by an older version keeps its known fields.
-    expect(mergeSettings({ language: 'hr' } as never).captureGpsWithMeasurements).toBe(false);
+    // GPS capture is on unless the operator turned it off, so a document from
+    // before the flag existed opts in rather than losing position silently.
+    expect(mergeSettings({ language: 'hr' } as never).captureGpsWithMeasurements).toBe(true);
+    expect(
+      mergeSettings({ captureGpsWithMeasurements: false } as never).captureGpsWithMeasurements
+    ).toBe(false);
     expect(mergeSettings(null).language).toBe('en');
     expect(mergeSettings({ defaultAlpha: -1 } as never).defaultAlpha).toBe(DEFAULT_SETTINGS.defaultAlpha);
   });

@@ -113,13 +113,44 @@ describe('decoder message protocol', () => {
     const message = { ...goodPair(), first: encodeBase64(new Uint8Array(5)) };
     const result = framePairFromMessage(message);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe('VIDEO_DECODE_FAILURE');
+    if (!result.ok && result.fatal) expect(result.failure.code).toBe('VIDEO_DECODE_FAILURE');
+    else throw new Error('a malformed plane must be fatal');
+  });
+
+  it('keeps a pair whose measured spacing only drifted by a frame', () => {
+    const result = framePairFromMessage({
+      ...goodPair(),
+      frameDeltaS: 0.117,
+      plannedDeltaS: 0.1,
+    });
+    expect(result.ok).toBe(true);
+    // The measured spacing, not the planned one, is what reaches the core.
+    if (result.ok) expect(result.pair.frameDeltaS).toBeCloseTo(0.117, 9);
+  });
+
+  it('drops a mistimed pair without failing the whole run', () => {
+    const result = framePairFromMessage({
+      ...goodPair(),
+      frameDeltaS: 0.4,
+      plannedDeltaS: 0.1,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fatal).toBe(false);
+    if (!result.fatal) expect(result.detail).toContain('300%');
+  });
+
+  it('drops a pair whose two seeks landed on the same frame', () => {
+    const result = framePairFromMessage({ ...goodPair(), frameDeltaS: 0, plannedDeltaS: 0.1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fatal).toBe(false);
   });
 
   it('turns undecodable base64 into a typed decode failure', () => {
     const result = framePairFromMessage({ ...goodPair(), second: '!!!!' });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.failure.code).toBe('VIDEO_DECODE_FAILURE');
+    if (!result.ok && result.fatal) expect(result.failure.code).toBe('VIDEO_DECODE_FAILURE');
+    else throw new Error('a malformed plane must be fatal');
   });
 });
 
@@ -162,6 +193,34 @@ describe('collector', () => {
     expect(clip.clip.pairs.map((entry) => entry.index)).toEqual([0, 1]); // sorted
     expect(clip.clip.sourceWidth).toBe(1280);
     expect(clip.clip.width).toBe(4);
+  });
+
+  it('carries on after a mistimed pair and analyses the rest', () => {
+    const state = createCollector();
+    collect(state, meta);
+    collect(state, { ...pair(0), frameDeltaS: 0.9, plannedDeltaS: 0.1 });
+    collect(state, { ...pair(1), plannedDeltaS: 0.1 });
+    collect(state, { type: 'done', pairs: 2 });
+
+    expect(state.dropped).toHaveLength(1);
+    const clip = buildClip(state);
+    expect(clip.ok).toBe(true);
+    if (clip.ok) expect(clip.clip.pairs.map((entry) => entry.index)).toEqual([1]);
+  });
+
+  it('fails the run when every pair was mistimed', () => {
+    const state = createCollector();
+    collect(state, meta);
+    collect(state, { ...pair(0), frameDeltaS: 0.9, plannedDeltaS: 0.1 });
+    collect(state, { ...pair(1), frameDeltaS: 0.9, plannedDeltaS: 0.1 });
+    collect(state, { type: 'done', pairs: 2 });
+
+    const clip = buildClip(state);
+    expect(clip.ok).toBe(false);
+    if (!clip.ok) {
+      expect(clip.failure.code).toBe('VIDEO_DECODE_FAILURE');
+      expect(clip.failure.detail).toContain('mistimed');
+    }
   });
 
   it('surfaces a decoder error as a typed failure', () => {
@@ -220,7 +279,21 @@ describe('decoder bootstrap', () => {
     expect(html).not.toContain('XMLHttpRequest');
     // Every failure path posts a typed error rather than going quiet.
     expect(html).toContain("bail('VIDEO_ELEMENT_ERROR'");
-    expect(html).toContain("bail('FRAME_SEEK_FAILED'");
+    expect(html).toContain("'FRAME_SEEK_FAILED'");
     expect(html).toContain("bail('NO_DURATION'");
+  });
+
+  it('reports a blocked canvas read separately from a failed seek', () => {
+    const html = buildDecoderHtml();
+    // A tainted canvas throws at getImageData, which is not a seek problem.
+    expect(html).toContain("blocked.code = 'FRAME_READ_BLOCKED'");
+    expect(html).toContain('(error && error.code) || ');
+  });
+
+  it('reports the times the player reached, not the times it was asked for', () => {
+    const html = buildDecoderHtml();
+    expect(html).toContain('resolve(video.currentTime)');
+    expect(html).toContain('secondActualS - firstActualS');
+    expect(html).toContain('plannedDeltaS: entry.frameDeltaS');
   });
 });

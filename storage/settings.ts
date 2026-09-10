@@ -27,7 +27,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   language: 'en',
   defaultAlpha: DEFAULT_ALPHA,
-  captureGpsWithMeasurements: false,
+  captureGpsWithMeasurements: true,
   siteDistanceWarningM: 50,
   csvFormat: 'international',
   pdfIncludeGps: true,
@@ -51,7 +51,7 @@ export function mergeSettings(stored: Partial<AppSettings> | null | undefined): 
       typeof stored.defaultAlpha === 'number' && Number.isFinite(stored.defaultAlpha) && stored.defaultAlpha > 0
         ? stored.defaultAlpha
         : DEFAULT_SETTINGS.defaultAlpha,
-    captureGpsWithMeasurements: stored.captureGpsWithMeasurements === true,
+    captureGpsWithMeasurements: stored.captureGpsWithMeasurements !== false,
     siteDistanceWarningM:
       typeof stored.siteDistanceWarningM === 'number' && stored.siteDistanceWarningM > 0
         ? stored.siteDistanceWarningM

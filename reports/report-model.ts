@@ -2,6 +2,7 @@ import type { SavedMeasurement } from '../domain/measurement';
 import { UNCERTAINTY_WITHHELD } from '../domain/quality';
 import { formatNumber } from '../domain/units';
 import { classifyAccuracy } from '../domain/gps';
+import { materialLabelKey } from '../domain/roughness';
 import type { AppSettings } from '../storage/settings';
 
 /**
@@ -15,6 +16,8 @@ import type { AppSettings } from '../storage/settings';
 export interface ReportValue {
   labelKey: string;
   value: string;
+  /** When set, `value` is a translation key rather than literal text. */
+  valueKey?: string;
   unit?: string;
   provenanceKey?: string;
   qualityKey?: string;
@@ -132,6 +135,13 @@ export function buildReportModel(
   const methodRows: ReportValue[] = [{ labelKey: 'report.method', value: measurement.method }];
   if (settings.pdfIncludeMethodDetails) {
     if (measurement.method === 'manning') {
+      if (measurement.material) {
+        methodRows.push({
+          labelKey: 'report.material',
+          value: measurement.material,
+          valueKey: materialLabelKey(measurement.material),
+        });
+      }
       methodRows.push(numberRow('report.roughness', measurement.roughness, 4));
       methodRows.push(numberRow('report.slope', measurement.slope, 6));
     }

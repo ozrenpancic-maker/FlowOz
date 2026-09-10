@@ -39,6 +39,28 @@ export function slopeToPermille(slope: number): number {
   return slope * 1000;
 }
 
+/** How the operator prefers to enter the hydraulic gradient. */
+export type SlopeUnit = 'permille' | 'degrees';
+
+export const SLOPE_UNITS: readonly SlopeUnit[] = ['permille', 'degrees'] as const;
+
+export function isSlopeUnit(value: unknown): value is SlopeUnit {
+  return value === 'permille' || value === 'degrees';
+}
+
+/**
+ * Bed angle to gradient. The gradient is the tangent of the angle — rise over
+ * run — which is what Manning's S means; for the shallow angles of a channel
+ * the sine would be within rounding of it, but the tangent is the definition.
+ */
+export function degreesToPermille(degrees: number): number {
+  return Math.tan((degrees * Math.PI) / 180) * 1000;
+}
+
+export function permilleToDegrees(permille: number): number {
+  return (Math.atan(permille / 1000) * 180) / Math.PI;
+}
+
 /** A finite, strictly positive number — the precondition of most hydraulics. */
 export function isPositiveFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;

@@ -16,7 +16,8 @@ export function escapeHtml(raw: string): string {
 
 function renderRow(row: ReportValue, t: Translate): string {
   const label = escapeHtml(t(row.labelKey, row.labelKey));
-  const value = escapeHtml(row.unit ? `${row.value} ${row.unit}` : row.value);
+  const text = row.valueKey ? t(row.valueKey, row.value) : row.value;
+  const value = escapeHtml(row.unit ? `${text} ${row.unit}` : text);
   const provenance = row.provenanceKey ? escapeHtml(t(row.provenanceKey, row.provenanceKey)) : '';
   const quality = row.qualityKey ? escapeHtml(t(row.qualityKey, row.qualityKey)) : '';
   const classes = [row.withheld ? 'withheld' : '', row.warning ? 'warning' : ''].filter(Boolean).join(' ');

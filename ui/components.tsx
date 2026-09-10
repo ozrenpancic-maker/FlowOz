@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { parseNumericInput } from '../domain/units';
 import { MIN_TOUCH_SIZE, colors, radius, spacing, toneColor, typography, type QualityTone } from './theme';
 
 /** Screen scaffold: dark ground, safe padding, scrolling content. */
@@ -241,6 +242,75 @@ export function Field({
   );
 }
 
+const roundTo = (value: number, decimals?: number) =>
+  decimals === undefined ? value : Number(value.toFixed(decimals));
+
+const numberText = (value: number | null, decimals?: number) =>
+  value === null ? '' : String(roundTo(value, decimals));
+
+/**
+ * Numeric input that keeps what the operator actually typed.
+ *
+ * A field controlled straight from the parsed number cannot be typed into: the
+ * intermediate "0." parses to 0, re-renders as "0", and the decimal point is
+ * gone before the next digit arrives. The raw text lives here and is only
+ * replaced when the value changes from somewhere else — a unit switch, a site
+ * prefill, a material that carries its own coefficient.
+ */
+export function NumberField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  unit,
+  hint,
+  invalid = false,
+  autoFocus = false,
+  decimals,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (next: number | null) => void;
+  placeholder?: string;
+  unit?: string;
+  hint?: string;
+  invalid?: boolean;
+  autoFocus?: boolean;
+  /** Display precision, also the precision the re-sync compares at. */
+  decimals?: number;
+}) {
+  const [text, setText] = useState(() => numberText(value, decimals));
+
+  useEffect(() => {
+    setText((current) => {
+      const parsed = parseNumericInput(current);
+      // A value that round-trips through a unit conversion comes back with
+      // float noise; at the field's own precision it is the same number, and
+      // replacing the text would eat what is being typed.
+      if (parsed !== null && value !== null && roundTo(parsed, decimals) === roundTo(value, decimals)) {
+        return current;
+      }
+      return parsed === value ? current : numberText(value, decimals);
+    });
+  }, [value, decimals]);
+
+  return (
+    <Field
+      label={label}
+      value={text}
+      onChangeText={(next) => {
+        setText(next);
+        onChange(parseNumericInput(next));
+      }}
+      placeholder={placeholder}
+      unit={unit}
+      hint={hint}
+      invalid={invalid}
+      autoFocus={autoFocus}
+    />
+  );
+}
+
 export function Choice<T extends string | number>({
   label,
   options,
@@ -273,6 +343,90 @@ export function Choice<T extends string | number>({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+  /** Secondary line, e.g. the coefficient a material carries. */
+  detail?: string;
+  /** Options sharing a group are rendered under one heading. */
+  group?: string;
+}
+
+/**
+ * A collapsed picker for lists too long to lay out as chips. It stays closed
+ * until tapped so a long catalogue does not push the rest of the step off the
+ * screen, and every row is a full touch target for gloved use in the field.
+ */
+export function Select<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  hint,
+}: {
+  label: string;
+  value: T | null;
+  options: SelectOption<T>[];
+  onChange: (next: T) => void;
+  placeholder?: string;
+  hint?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? null;
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((current) => !current)}
+        style={styles.selectTrigger}
+      >
+        <View style={styles.selectTriggerText}>
+          <Text style={selected ? styles.selectValue : styles.selectPlaceholder}>
+            {selected?.label ?? placeholder ?? '—'}
+          </Text>
+          {selected?.detail ? <Text style={styles.fieldHint}>{selected.detail}</Text> : null}
+        </View>
+        <Text style={styles.selectChevron}>{open ? '\u2303' : '\u2304'}</Text>
+      </Pressable>
+
+      {open ? (
+        <View style={styles.selectList}>
+          {options.map((option, index) => {
+            const isSelected = option.value === value;
+            const startsGroup = option.group !== undefined && option.group !== options[index - 1]?.group;
+            return (
+              <View key={option.value}>
+                {startsGroup ? <Text style={styles.selectGroup}>{option.group}</Text> : null}
+                <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  style={[styles.selectOption, isSelected && styles.selectOptionSelected]}
+                >
+                  <Text style={[styles.selectOptionLabel, isSelected && styles.selectValue]}>
+                    {option.label}
+                  </Text>
+                  {option.detail ? <Text style={styles.fieldHint}>{option.detail}</Text> : null}
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {hint ? <Text style={styles.fieldHint}>{hint}</Text> : null}
     </View>
   );
 }
@@ -416,6 +570,45 @@ const styles = StyleSheet.create({
   choiceSelected: { borderColor: colors.accent, backgroundColor: colors.accentDim },
   choiceText: { ...typography.small, color: colors.textMuted, fontWeight: '600' },
   choiceTextSelected: { color: colors.text },
+  selectTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: MIN_TOUCH_SIZE,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceRaised,
+  },
+  selectTriggerText: { flex: 1, gap: 2 },
+  selectValue: { ...typography.body, color: colors.text },
+  selectPlaceholder: { ...typography.body, color: colors.textFaint },
+  selectChevron: { ...typography.body, color: colors.textMuted },
+  selectList: {
+    marginTop: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  selectGroup: {
+    ...typography.small,
+    color: colors.textMuted,
+    fontWeight: '700',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  selectOption: {
+    minHeight: MIN_TOUCH_SIZE,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: 2,
+  },
+  selectOptionSelected: { backgroundColor: colors.accentDim },
+  selectOptionLabel: { ...typography.body, color: colors.textMuted },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: MIN_TOUCH_SIZE },
   toggleBox: {
     width: 26,

@@ -57,6 +57,10 @@ export function buildDecoderHtml(): string {
     return out;
   }
 
+  // Resolves with the time the player actually landed on, which is the nearest
+  // decodable frame and not necessarily the time we asked for. Everything
+  // downstream divides by this, so the requested time must never be used as if
+  // it were the achieved one.
   function seekTo(time) {
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
@@ -67,7 +71,7 @@ export function buildDecoderHtml(): string {
         clearTimeout(timer);
         video.removeEventListener('seeked', onSeeked);
         // One rAF so the decoded frame is actually presented before we draw it.
-        requestAnimationFrame(function () { resolve(); });
+        requestAnimationFrame(function () { resolve(video.currentTime); });
       }
       video.addEventListener('seeked', onSeeked);
       try {
@@ -82,7 +86,21 @@ export function buildDecoderHtml(): string {
 
   function grabLuminance(width, height) {
     context.drawImage(video, 0, 0, width, height);
-    var image = context.getImageData(0, 0, width, height);
+    var image;
+    try {
+      image = context.getImageData(0, 0, width, height);
+    } catch (error) {
+      // A tainted canvas fails here, not at the seek. Carrying its own code
+      // keeps it from being reported as a seek that never went wrong.
+      var blocked = new Error(
+        'the decoded frame could not be read back: ' +
+          ((error && error.name) || 'error') +
+          ' — ' +
+          ((error && error.message) || 'no detail')
+      );
+      blocked.code = 'FRAME_READ_BLOCKED';
+      throw blocked;
+    }
     var rgba = image.data;
     var plane = new Uint8Array(width * height);
     for (var i = 0, p = 0; p < plane.length; i += 4, p += 1) {
@@ -122,16 +140,18 @@ export function buildDecoderHtml(): string {
       }
       var entry = plan[index];
       seekTo(entry.firstS)
-        .then(function () {
+        .then(function (firstActualS) {
           var first = grabLuminance(width, height);
-          return seekTo(entry.secondS).then(function () {
+          return seekTo(entry.secondS).then(function (secondActualS) {
             var second = grabLuminance(width, height);
             post({
               type: 'pair',
               index: entry.index,
-              firstS: entry.firstS,
-              secondS: entry.secondS,
-              frameDeltaS: entry.frameDeltaS,
+              firstS: firstActualS,
+              secondS: secondActualS,
+              // Measured, not planned: the spacing the frames actually have.
+              frameDeltaS: secondActualS - firstActualS,
+              plannedDeltaS: entry.frameDeltaS,
               width: width,
               height: height,
               first: toBase64(first),
@@ -141,7 +161,12 @@ export function buildDecoderHtml(): string {
             next();
           });
         })
-        .catch(function (error) { bail('FRAME_SEEK_FAILED', error && error.message ? error.message : error); });
+        .catch(function (error) {
+          bail(
+            (error && error.code) || 'FRAME_SEEK_FAILED',
+            error && error.message ? error.message : error
+          );
+        });
     }
     next();
   }
