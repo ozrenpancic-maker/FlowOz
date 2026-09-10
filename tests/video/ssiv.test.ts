@@ -1,9 +1,10 @@
 import { SSIV_FAILURE_CODES, isSsivFailure, ssivFailure } from '../../video/failure-taxonomy';
 import { planFramePairs, processingSize } from '../../video/frame-plan';
-import { interrogationGrid, analyse } from '../../video/ssiv-core';
+import { interrogationGrid, analyse, robustDirection } from '../../video/ssiv-core';
 import { estimateCameraMotion } from '../../video/stabilisation';
 import { SSIV_THRESHOLDS } from '../../video/types';
 import { makeClip, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
+import { median } from '../../domain/linalg';
 
 /**
  * The synthetic clip translates the texture inside the ROI by a known number of
@@ -54,6 +55,46 @@ describe('frame sampling plan', () => {
     expect(processingSize(1280, 720)).toEqual({ width: 240, height: 135 });
     expect(processingSize(160, 120)).toEqual({ width: 160, height: 120 });
     expect(processingSize(0, 720)).toBeNull();
+  });
+});
+
+describe('flow direction', () => {
+  it('does not flip direction when the flow runs leftward across the frame', () => {
+    // Leftward flow sits on the ±π branch cut: half the vectors report an angle
+    // just under +π and half just over −π. A median of those angles is 0, the
+    // exact opposite direction, which would reject every vector as a
+    // directional outlier.
+    const dx = [-3, -3, -3, -3];
+    const dy = [0.03, 0.015, -0.015, -0.03];
+    const direction = robustDirection(dx, dy);
+    expect(Math.abs(direction)).toBeCloseTo(Math.PI, 3);
+
+    const naive = median(dx.map((value, i) => Math.atan2(dy[i] as number, value)));
+    expect(Math.abs(naive)).toBeLessThan(0.1); // what the median of angles gives
+  });
+
+  it('reports the direction of the flow for each quadrant', () => {
+    expect(robustDirection([3, 3], [0, 0])).toBeCloseTo(0, 6);
+    expect(robustDirection([0, 0], [3, 3])).toBeCloseTo(Math.PI / 2, 6);
+    expect(robustDirection([0, 0], [-3, -3])).toBeCloseTo(-Math.PI / 2, 6);
+    expect(Number.isNaN(robustDirection([], []))).toBe(true);
+  });
+
+  it('measures the same speed whichever way the flow runs', () => {
+    // Across the flow the ROI is 0.4 · 240 px = 96 px ↔ 2 m, so a 3 px shift is
+    // 3 · 2/96 = 0.0625 m, which over 0.1 s is 0.625 m/s.
+    const across = (3 * (TEST_DIMENSIONS.widthM / 96)) / 0.1;
+    for (const shiftX of [3, -3]) {
+      const result = analyse({
+        clip: makeClip({ shiftX, shiftY: 0 }),
+        roi: TEST_ROI,
+        knownDimensions: TEST_DIMENSIONS,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.value.surfaceVelocity).toBeCloseTo(across, 1);
+      expect(result.value.quality.rejectionsByReason.DIRECTIONAL_OUTLIER).toBe(0);
+    }
   });
 });
 

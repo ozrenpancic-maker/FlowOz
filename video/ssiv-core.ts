@@ -193,6 +193,20 @@ function computeSpatialCoherence(vector: RawVector, neighbours: readonly RawVect
   return Number.isFinite(coherence) ? Math.min(1, Math.max(0, coherence)) : 0;
 }
 
+/**
+ * Robust direction of a set of displacements [rad].
+ *
+ * The median of the angles themselves is wrong at the ±π branch cut: flow
+ * running leftward across the frame gives angles just under +π and just over
+ * −π, whose median is 0 — the exact opposite direction, which would then reject
+ * every vector as a directional outlier. Taking the median per component and
+ * forming the angle from those has no wrap to get wrong.
+ */
+export function robustDirection(dx: readonly number[], dy: readonly number[]): number {
+  if (dx.length === 0 || dx.length !== dy.length) return NaN;
+  return Math.atan2(median(dy), median(dx));
+}
+
 function angleDifference(a: number, b: number): number {
   let difference = a - b;
   while (difference > Math.PI) difference -= 2 * Math.PI;
@@ -246,25 +260,40 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     );
   }
 
+  // The spacing the decoder achieved, not the one it aimed for. A seek lands on
+  // the nearest decodable frame, so the achieved spacing is allowed to sit one
+  // frame either side of the planned band — the velocity divides by the
+  // measured value, and a displacement that has grown too large is caught by
+  // the search-window edge test rather than by guessing here.
+  const deltaTolerance = SSIV_THRESHOLDS.maxFrameDeltaDeviationFraction;
+  const minUsableDeltaS = SSIV_THRESHOLDS.minFrameDeltaS * (1 - deltaTolerance);
+  const maxUsableDeltaS = SSIV_THRESHOLDS.maxFrameDeltaS * (1 + deltaTolerance);
+
   const allVectors: RawVector[] = [];
+  const mistimedPairs: number[] = [];
   for (const pair of clip.pairs) {
     const entry = stabilisation.find((item) => item.pairIndex === pair.index);
     if (!entry || !entry.stable) continue; // unstable pairs contribute nothing
-    if (
-      pair.frameDeltaS < SSIV_THRESHOLDS.minFrameDeltaS ||
-      pair.frameDeltaS > SSIV_THRESHOLDS.maxFrameDeltaS
-    ) {
-      continue; // outside the usable spacing; the decoder should not emit these
+    if (pair.frameDeltaS < minUsableDeltaS || pair.frameDeltaS > maxUsableDeltaS) {
+      mistimedPairs.push(pair.index);
+      continue;
     }
     allVectors.push(...measurePair(pair, roi, entry.shiftXPx, entry.shiftYPx));
   }
 
   if (allVectors.length === 0) {
     return err(
-      ssivFailure('VIDEO_DECODE_FAILURE', 'no interrogation point could be evaluated', {
-        stablePairs: stablePairs.length,
-        totalPairs: clip.pairs.length,
-      })
+      ssivFailure(
+        'VIDEO_DECODE_FAILURE',
+        mistimedPairs.length > 0
+          ? `no interrogation point could be evaluated; pairs ${mistimedPairs.join(', ')} ` +
+            `were spaced outside ${minUsableDeltaS.toFixed(3)}–${maxUsableDeltaS.toFixed(3)} s`
+          : 'no interrogation point could be evaluated',
+        {
+          stablePairs: stablePairs.length,
+          totalPairs: clip.pairs.length,
+        }
+      )
     );
   }
 
@@ -327,9 +356,11 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   // Stage 3 — robust centre. The median is the centre; the MAD sets the band.
   let accepted: RawVector[] = [];
   if (coherent.length > 0) {
-    const angles = coherent.map((vector) => vector.anglRad);
     const magnitudes = coherent.map((vector) => vector.magnitudePx);
-    const centreAngle = median(angles);
+    const centreAngle = robustDirection(
+      coherent.map((vector) => vector.dxPx),
+      coherent.map((vector) => vector.dyPx)
+    );
     const centreMagnitude = median(magnitudes);
     const magnitudeMad = medianAbsoluteDeviation(magnitudes, centreMagnitude);
     const magnitudeBand = Number.isFinite(magnitudeMad) && magnitudeMad > 1e-6 ? 3 * magnitudeMad : 1;
@@ -404,7 +435,10 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
       ssivFailure(
         'INSUFFICIENT_VALID_VECTORS',
         `${accepted.length}/${vectors.length} vectors passed every filter, ` +
-          `${SSIV_THRESHOLDS.minAcceptedVectors} required`,
+          `${SSIV_THRESHOLDS.minAcceptedVectors} required` +
+          (mistimedPairs.length > 0
+            ? ` (${mistimedPairs.length} pair(s) dropped for frame spacing)`
+            : ''),
         {
           totalVectors: vectors.length,
           acceptedVectors: accepted.length,

@@ -1,5 +1,6 @@
 import type { SavedMeasurement } from '../domain/measurement';
 import { classifyAccuracy } from '../domain/gps';
+import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
 import type { CsvFormat } from '../storage/settings';
 
 /**
@@ -43,6 +44,7 @@ export const CSV_COLUMNS = [
   'mean_velocity_ms',
   'flow_m3s',
   'flow_ls',
+  'flow_m3h',
   'level_method',
   'processing_status',
   'confidence',
@@ -108,7 +110,9 @@ export function measurementRow(measurement: SavedMeasurement): Record<CsvColumn,
     alpha: measurement.alpha ?? null,
     mean_velocity_ms: measurement.velocity ?? null,
     flow_m3s: measurement.flowM3s ?? null,
-    flow_ls: typeof measurement.flowM3s === 'number' ? measurement.flowM3s * 1000 : null,
+    flow_ls: typeof measurement.flowM3s === 'number' ? toLitresPerSecond(measurement.flowM3s) : null,
+    flow_m3h:
+      typeof measurement.flowM3s === 'number' ? toCubicMetresPerHour(measurement.flowM3s) : null,
     level_method: measurement.levelMethod,
     processing_status: measurement.processingStatus,
     confidence: measurement.confidence,

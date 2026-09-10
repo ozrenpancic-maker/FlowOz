@@ -6,6 +6,7 @@ import { calculate, buildSavedMeasurement, type CalculationOutcome } from '../do
 import { createDisplayId, createId } from '../domain/ids';
 import { maximumDepth } from '../domain/geometry';
 import { activeAlpha } from '../domain/calibration';
+import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
 import { classifyAccuracy, compareWithSite, type GpsAccuracyClass } from '../domain/gps';
 import {
   CUSTOM_ROUGHNESS_ID,
@@ -41,6 +42,7 @@ import {
   Toggle,
   ValueRow,
 } from '../ui/components';
+import { GeometryPicker } from '../ui/CrossSection';
 import { colors, gradeTone, spacing, typography, type QualityTone } from '../ui/theme';
 
 type Step = 'site' | 'geometry' | 'level' | 'velocity' | 'review' | 'result';
@@ -388,7 +390,16 @@ export default function MeasureScreen() {
             unit="m³/s"
             provenance={t('provenance.calculated')}
           />
-          <ValueRow label={t('report.flowLs')} value={formatNumber(value.flowM3s * 1000, 2)} unit="l/s" />
+          <ValueRow
+            label={t('report.flowLs')}
+            value={formatNumber(toLitresPerSecond(value.flowM3s), 2)}
+            unit="l/s"
+          />
+          <ValueRow
+            label={t('report.flowM3h')}
+            value={formatNumber(toCubicMetresPerHour(value.flowM3s), 2)}
+            unit="m³/h"
+          />
           <ValueRow label={t('report.meanVelocity')} value={formatNumber(value.velocity, 4)} unit="m/s" />
           <ValueRow label={t('report.area')} value={formatNumber(value.section.area, 5)} unit="m²" />
           <ValueRow label={t('report.hydraulicRadius')} value={formatNumber(value.section.hydraulicRadius, 5)} unit="m" />
@@ -506,7 +517,7 @@ function GeometryStep({
   return (
     <>
       <SectionTitle>{t('measure.step.geometry')}</SectionTitle>
-      <Choice
+      <GeometryPicker
         label={t('measure.geometryKind')}
         value={draft.dimensions.kind}
         onChange={setKind}

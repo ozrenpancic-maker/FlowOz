@@ -412,6 +412,7 @@ export const hr: Record<keyof typeof en, string> = {
   'report.roiWidth': 'Poznata širina ROI-ja',
   'report.roiLength': 'Poznata duljina ROI-ja',
   'report.meanVelocity': 'Srednja brzina Vmean',
+  'report.flowM3h': 'Protok Q',
   'report.flowM3s': 'Protok Q',
   'report.flowLs': 'Protok Q',
   'report.overallQuality': 'Ukupna kvaliteta',

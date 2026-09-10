@@ -416,6 +416,7 @@ export const en = {
   'report.roiWidth': 'Known ROI width',
   'report.roiLength': 'Known ROI length',
   'report.meanVelocity': 'Mean velocity Vmean',
+  'report.flowM3h': 'Discharge Q',
   'report.flowM3s': 'Discharge Q',
   'report.flowLs': 'Discharge Q',
   'report.overallQuality': 'Overall quality',

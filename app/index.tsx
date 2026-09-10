@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import type { SavedMeasurement } from '../domain/measurement';
 import { formatNumber } from '../domain/units';
+import { toLitresPerSecond } from '../domain/hydraulics';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
 import { Badge, Button, Card, ErrorBlock, Muted, Screen, SectionTitle, ValueRow } from '../ui/components';
@@ -109,7 +110,7 @@ export default function HomeScreen() {
             label={t('report.flowLs')}
             value={
               typeof measurement.flowM3s === 'number'
-                ? formatNumber(measurement.flowM3s * 1000, 2)
+                ? formatNumber(toLitresPerSecond(measurement.flowM3s), 2)
                 : t('common.withheld')
             }
             unit={typeof measurement.flowM3s === 'number' ? 'l/s' : undefined}

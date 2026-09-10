@@ -3,6 +3,7 @@ import { UNCERTAINTY_WITHHELD } from '../domain/quality';
 import { formatNumber } from '../domain/units';
 import { classifyAccuracy } from '../domain/gps';
 import { materialLabelKey } from '../domain/roughness';
+import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
 import type { AppSettings } from '../storage/settings';
 
 /**
@@ -196,9 +197,18 @@ export function buildReportModel(
     numberRow('report.flowM3s', measurement.flowM3s, 5, 'm³/s', 'provenance.calculated'),
     numberRow(
       'report.flowLs',
-      typeof measurement.flowM3s === 'number' ? measurement.flowM3s * 1000 : undefined,
+      typeof measurement.flowM3s === 'number' ? toLitresPerSecond(measurement.flowM3s) : undefined,
       2,
       'l/s',
+      'provenance.calculated'
+    ),
+    numberRow(
+      'report.flowM3h',
+      typeof measurement.flowM3s === 'number'
+        ? toCubicMetresPerHour(measurement.flowM3s)
+        : undefined,
+      2,
+      'm³/h',
       'provenance.calculated'
     ),
     {

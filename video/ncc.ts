@@ -255,10 +255,12 @@ export function findPeak(
 
   const rms = offPeakCount > 0 ? Math.sqrt(sumSquares / offPeakCount) : NaN;
   const snr = Number.isFinite(rms) && rms > 1e-9 ? best / rms : Number.POSITIVE_INFINITY;
+  // Isolation of the peak against the best *competing* peak. A runner-up at or
+  // below zero is anti-correlated, which is the absence of a competitor rather
+  // than a close one, so it must not be turned into a small denominator by
+  // taking its magnitude.
   const peakRatio =
-    Number.isFinite(second) && Math.abs(second) > 1e-9
-      ? best / Math.abs(second)
-      : Number.POSITIVE_INFINITY;
+    Number.isFinite(second) && second > 1e-9 ? best / second : Number.POSITIVE_INFINITY;
 
   // Parabolic sub-pixel refinement, one axis at a time.
   const refine = (minus: number, centre: number, plus: number) => {

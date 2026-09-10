@@ -1,5 +1,11 @@
 import { circularSection, rectangularSection } from '../../domain/geometry';
-import { manningVelocity, manualFlow, toLitresPerSecond, videoFlow } from '../../domain/hydraulics';
+import {
+  manningVelocity,
+  manualFlow,
+  toCubicMetresPerHour,
+  toLitresPerSecond,
+  videoFlow,
+} from '../../domain/hydraulics';
 import { activeAlpha, deriveAlpha } from '../../domain/calibration';
 import { buildReport, checkValue } from '../../domain/plausibility';
 import type { SectionProperties } from '../../domain/types';
@@ -106,6 +112,10 @@ describe('video flow', () => {
 describe('unit helper', () => {
   it('converts m³/s to l/s', () => {
     expect(toLitresPerSecond(0.0123)).toBeCloseTo(12.3, 9);
+    expect(toCubicMetresPerHour(0.0123)).toBeCloseTo(44.28, 9);
+    // One litre per second is 3.6 cubic metres an hour, by definition.
+    expect(toCubicMetresPerHour(0.001)).toBeCloseTo(3.6, 9);
+    expect(toCubicMetresPerHour(0)).toBe(0);
   });
 });
 

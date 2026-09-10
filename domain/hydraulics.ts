@@ -120,3 +120,8 @@ export function videoFlow(
 export function toLitresPerSecond(flowM3s: number): number {
   return flowM3s * 1000;
 }
+
+/** Convert m³/s to cubic metres per hour, for display only. */
+export function toCubicMetresPerHour(flowM3s: number): number {
+  return flowM3s * 3600;
+}
