@@ -18,6 +18,14 @@ export const SSIV_THRESHOLDS = Object.freeze({
   minSpatialCoherence: 0.25,
   /** Vectors that must survive every filter before a velocity is reported. */
   minAcceptedVectors: 4,
+  /** Ensemble grid nodes that must survive before the ensemble velocity is used. */
+  minAcceptedEnsembleNodes: 4,
+  /**
+   * Pairs whose measured spacing sits within this fraction of the median
+   * spacing are averaged together; a pair further off would blur the ensemble
+   * peak, so it contributes to the per-pair vectors only.
+   */
+  ensembleDeltaBandFraction: 0.15,
   /** Correlation floor for the global camera-motion estimate. */
   minStabilisationCorrelation: 0.55,
   /** Stabilised pairs required out of `framePairs`. */
@@ -90,11 +98,68 @@ export interface SsivVector {
   rejectionReason?: VectorRejectionReason;
 }
 
+/**
+ * A similarity transform of the image plane: x' = a·x − b·y + tx,
+ * y' = b·x + a·y + ty. Rotation and scale live in (a, b); a pure translation
+ * is a = 1, b = 0.
+ */
+export interface SimilarityTransform {
+  a: number;
+  b: number;
+  tx: number;
+  ty: number;
+}
+
+/**
+ * One interrogation node of the ensemble estimate: the correlation surfaces of
+ * every usable frame pair averaged before the peak was looked for. Where the
+ * per-pair vectors see one noisy match each, this sees the match the pairs
+ * have in common.
+ */
+export interface EnsembleVector {
+  gridColumn: number;
+  gridRow: number;
+  /** Interrogation centre in working-resolution pixels. */
+  x: number;
+  y: number;
+  /** Displacement over the mean pair spacing, camera motion removed [px]. */
+  dxPx: number;
+  dyPx: number;
+  correlation: number;
+  peakRatio: number;
+  snr: number;
+  uncertaintyPx: number;
+  forwardBackwardPx: number;
+  /** Frame pairs whose surfaces were averaged at this node. */
+  pairsUsed: number;
+  /** Mean spacing of those pairs [s], the time the displacement covers. */
+  frameDeltaS: number;
+  displacementM?: number;
+  velocityMs?: number;
+  accepted: boolean;
+  rejectionReason?: VectorRejectionReason;
+}
+
 export interface FramePairStabilisation {
   pairIndex: number;
-  /** Global camera displacement measured on the stationary part of the frame. */
+  /**
+   * Camera displacement at the frame centre, measured on the stationary part
+   * of the frame [px]. With a similarity model the displacement elsewhere in
+   * the frame differs; use `cameraDisplacementAt` rather than these directly.
+   */
   shiftXPx: number;
   shiftYPx: number;
+  /** How the camera motion was modelled for this pair. */
+  model: 'translation' | 'similarity';
+  /** Present when the model is a similarity. */
+  similarity?: SimilarityTransform;
+  /** Rotation and scale implied by the similarity, for the record. */
+  rotationRad?: number;
+  scale?: number;
+  /** Background anchors that tracked and were used in the fit. */
+  anchorsUsed: number;
+  /** Worst anchor residual against the fitted motion [px]. */
+  residualPx: number;
   correlation: number;
   stable: boolean;
   frameDeltaS: number;
@@ -141,14 +206,29 @@ export interface SsivQualitySummary {
   medianCorrelation: number;
   /** Median absolute camera displacement across stabilised pairs [px]. */
   cameraCompensationPx: number;
+  /** Ensemble nodes evaluated and accepted, and pairs that fed the ensemble. */
+  ensembleNodes: number;
+  acceptedEnsembleNodes: number;
+  ensemblePairsUsed: number;
 }
 
 export interface SsivAnalysis {
-  /** Median metric surface velocity of the accepted vectors [m/s]. */
+  /** Reported metric surface velocity [m/s]. */
   surfaceVelocity: number;
-  /** Robust spread of the accepted metric velocities (MAD) [m/s]. Diagnostic
+  /**
+   * Where the reported velocity came from: the ensemble estimate when enough
+   * of its nodes survived, otherwise the median of the per-pair vectors.
+   */
+  velocitySource: 'ensemble' | 'instantaneous';
+  /** Median of the accepted per-pair vector velocities [m/s], when any. */
+  instantaneousVelocity?: number;
+  /** Median of the accepted ensemble node velocities [m/s], when any. */
+  ensembleVelocity?: number;
+  /** Robust spread of the accepted per-pair velocities (MAD) [m/s]. Diagnostic
    * only — this is not a validated uncertainty. */
   velocitySpreadMs: number;
+  /** Robust spread of the accepted ensemble node velocities across the ROI [m/s]. */
+  ensembleSpreadMs?: number;
   calibrationStatus: CalibrationStatus;
   frameWidth: number;
   frameHeight: number;
@@ -158,6 +238,7 @@ export interface SsivAnalysis {
   frameDeltaS: number;
   stabilisation: FramePairStabilisation[];
   vectors: SsivVector[];
+  ensemble: EnsembleVector[];
   quality: SsivQualitySummary;
   thresholds: typeof SSIV_THRESHOLDS;
   algorithmVersion: string;

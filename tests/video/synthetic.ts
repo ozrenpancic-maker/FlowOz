@@ -60,6 +60,15 @@ export interface SyntheticOptions {
   moving?: { x0: number; x1: number; y0: number; y1: number };
   /** Standard deviation of additive noise, in grey levels. */
   noise?: number;
+  /**
+   * Scales the contrast of the texture inside the moving region only, about
+   * its own mean — 1 is full contrast, values near 0 approach the flat,
+   * glassy water a single frame pair cannot resolve. The bank outside the
+   * region is untouched, so the camera can still be stabilised.
+   */
+  textureAmplitude?: number;
+  /** Roll the whole second frame about its centre by this angle [rad]. */
+  cameraRotationRad?: number;
   /** Flat frames: no trackable texture anywhere. */
   flat?: boolean;
   /** Featureless water inside the moving region, textured bank around it. */
@@ -112,6 +121,29 @@ export function makeClip(options: SyntheticOptions = {}): DecodedClip {
         }
 
         const insideMoving = x >= moving.x0 && x <= moving.x1 && y >= moving.y0 && y <= moving.y1;
+        if (options.textureAmplitude !== undefined && insideMoving) {
+          const amplitude = options.textureAmplitude;
+          const base = 190; // a brighter, low-contrast water surface
+          first[i] = base + (texture(x, y) - 128) * amplitude + jitter();
+          second[i] = base + (texture(x - shiftX, y - shiftY) - 128) * amplitude + jitter();
+          continue;
+        }
+        if (options.cameraRotationRad) {
+          // The camera rolled: every pixel of the second frame samples the
+          // scene at the pre-image of a rotation about the frame centre, and
+          // the water inside the ROI has moved by the shift on top of that.
+          const cx = width / 2;
+          const cy = height / 2;
+          const cos = Math.cos(-options.cameraRotationRad);
+          const sin = Math.sin(-options.cameraRotationRad);
+          const sx = cx + (x - cx) * cos - (y - cy) * sin;
+          const sy = cy + (x - cx) * sin + (y - cy) * cos;
+          const movingSource = sx >= moving.x0 && sx <= moving.x1 && sy >= moving.y0 && sy <= moving.y1;
+          second[i] = movingSource
+            ? texture(sx - shiftX, sy - shiftY) + jitter()
+            : texture(sx, sy) + jitter();
+          continue;
+        }
         if (options.flatWater && insideMoving) {
           // Glassy water: the bank is sharp, the surface carries nothing.
           first[i] = 128 + jitter();

@@ -3,12 +3,22 @@ import { err, ok, type Result } from '../domain/result';
 import type { NormalizedPoint } from '../domain/types';
 import { ALGORITHM_VERSION } from '../domain/types';
 import { buildCalibration, metricDisplacement, type Homography } from './homography';
-import { extractPatch, findPeak, prepareGrid, type Grid } from './ncc';
+import {
+  extractPatch,
+  findPeak,
+  peakOfSurface,
+  prepareGrid,
+  rawCorrelationSurface,
+  type Grid,
+  type PreparedGrid,
+} from './ncc';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
-import { stabiliseAll } from './stabilisation';
+import { cameraDisplacementAt, stabiliseAll } from './stabilisation';
 import {
   SSIV_THRESHOLDS,
+  type EnsembleVector,
   type FramePair,
+  type FramePairStabilisation,
   type SsivAnalysis,
   type SsivAnalysisInput,
   type SsivQualitySummary,
@@ -67,8 +77,7 @@ interface RawVector extends SsivVector {
 function measurePair(
   pair: FramePair,
   roi: SsivAnalysisInput['roi'],
-  shiftXPx: number,
-  shiftYPx: number
+  motion: FramePairStabilisation
 ): RawVector[] {
   const firstRaw: Grid = { data: pair.first, width: pair.width, height: pair.height };
   const secondRaw: Grid = { data: pair.second, width: pair.width, height: pair.height };
@@ -134,9 +143,12 @@ function measurePair(
       }
     }
 
-    // Camera drift is removed before anything else looks at the displacement.
-    const dxPx = peak.subDx - shiftXPx;
-    const dyPx = peak.subDy - shiftYPx;
+    // Camera motion is removed before anything else looks at the displacement.
+    // With a similarity model it differs across the frame, so it is evaluated
+    // at this point rather than taken as one global shift.
+    const camera = cameraDisplacementAt(motion, x, y);
+    const dxPx = peak.subDx - camera.dx;
+    const dyPx = peak.subDy - camera.dy;
 
     vectors.push({
       ...base,
@@ -158,8 +170,19 @@ function measurePair(
   return vectors;
 }
 
+/** What the per-point filters look at, common to per-pair and ensemble vectors. */
+interface PointMetrics {
+  dxPx: number;
+  dyPx: number;
+  correlation: number;
+  peakRatio: number;
+  uncertaintyPx: number;
+  forwardBackwardPx: number;
+  rejectionReason?: VectorRejectionReason;
+}
+
 /** Per-vector filters that need no knowledge of the other vectors. */
-function applyPointFilters(vector: RawVector): VectorRejectionReason | null {
+function applyPointFilters(vector: PointMetrics): VectorRejectionReason | null {
   if (vector.rejectionReason === 'SEARCH_WINDOW_EDGE') return 'SEARCH_WINDOW_EDGE';
   if (![vector.dxPx, vector.dyPx].every(Number.isFinite)) return 'NON_FINITE';
   if (!Number.isFinite(vector.correlation) || vector.correlation < SSIV_THRESHOLDS.minCorrelation) {
@@ -214,6 +237,238 @@ function angleDifference(a: number, b: number): number {
   return Math.abs(difference);
 }
 
+/**
+ * Ensemble correlation (Meinhart, Wereley & Santiago 2000; Meselhe et al.
+ * 2004): the raw numerator and denominator terms of every usable pair's
+ * correlation surface are summed at each candidate offset — not the finished,
+ * already-normalised correlation values — and only then is one ratio taken
+ * and a peak looked for (see rawCorrelationAt for why the raw terms and not
+ * the ratios). The water's true displacement contributes the same signal in
+ * every pair and so accumulates in step with the pair count; a spurious match
+ * lands somewhere different in each pair and does not.
+ *
+ * What this buys is reliability, not a higher correlation ceiling: the
+ * expected correlation at the true offset is set by the surface's own
+ * signal-to-noise ratio and does not rise just because more pairs were
+ * averaged (confirmed empirically — the median correlation here holds flat
+ * from 6 pairs to 400). What shrinks with more pairs is the *spread* around
+ * that expected value, which is what stops a single unlucky pair's noise
+ * from outvoting the true peak, or a single lucky one from being mistaken for
+ * a strong match it is not. A texture with no signal-to-noise ratio worth
+ * having stays refused either way — this is not a route around
+ * INSUFFICIENT_TEXTURE, it is a steadier reading of what texture there is.
+ *
+ * Camera motion differs per pair, so each pair's surface is centred on the
+ * node displaced by that pair's integer camera shift; the fractional parts
+ * are averaged and removed afterwards. Only pairs whose measured spacing sits
+ * close to the median spacing take part — the displacement being averaged has
+ * to mean the same thing in every pair.
+ */
+function measureEnsemble(
+  pairs: readonly FramePair[],
+  stabilisation: readonly FramePairStabilisation[],
+  roi: SsivAnalysisInput['roi']
+): { vectors: EnsembleVector[]; pairsUsed: number; frameDeltaS: number } {
+  const usable = pairs.filter((pair) => {
+    const entry = stabilisation.find((item) => item.pairIndex === pair.index);
+    return entry?.stable === true;
+  });
+  if (usable.length === 0) return { vectors: [], pairsUsed: 0, frameDeltaS: NaN };
+
+  const medianDelta = median(usable.map((pair) => pair.frameDeltaS));
+  const band = SSIV_THRESHOLDS.ensembleDeltaBandFraction;
+  const members = usable.filter(
+    (pair) => Math.abs(pair.frameDeltaS - medianDelta) <= band * medianDelta
+  );
+  if (members.length === 0) return { vectors: [], pairsUsed: 0, frameDeltaS: NaN };
+  const frameDeltaS =
+    members.reduce((total, pair) => total + pair.frameDeltaS, 0) / members.length;
+
+  const window = SSIV_THRESHOLDS.interrogationWindowPx;
+  const radius = SSIV_THRESHOLDS.searchRadiusPx;
+  const reverseRadius = 3;
+  const span = 2 * radius + 1;
+  const reverseSpan = 2 * reverseRadius + 1;
+
+  const prepared = members.map((pair) => ({
+    pair,
+    motion: stabilisation.find((item) => item.pairIndex === pair.index) as FramePairStabilisation,
+    firstRaw: { data: pair.first, width: pair.width, height: pair.height } as Grid,
+    secondRaw: { data: pair.second, width: pair.width, height: pair.height } as Grid,
+    first: null as PreparedGrid | null,
+    second: null as PreparedGrid | null,
+  }));
+  for (const entry of prepared) {
+    entry.first = prepareGrid(entry.firstRaw);
+    entry.second = prepareGrid(entry.secondRaw);
+  }
+
+  const first = members[0] as FramePair;
+  const vectors: EnsembleVector[] = [];
+
+  for (const node of interrogationGrid(roi)) {
+    const x = node.point.x * first.width;
+    const y = node.point.y * first.height;
+
+    const base: EnsembleVector = {
+      gridColumn: node.column,
+      gridRow: node.row,
+      x,
+      y,
+      dxPx: NaN,
+      dyPx: NaN,
+      correlation: 0,
+      peakRatio: 0,
+      snr: 0,
+      uncertaintyPx: Number.POSITIVE_INFINITY,
+      forwardBackwardPx: Number.POSITIVE_INFINITY,
+      pairsUsed: 0,
+      frameDeltaS,
+      accepted: false,
+      rejectionReason: 'NON_FINITE',
+    };
+
+    // Forward: sum the raw cross-product and window-variance terms of every
+    // pair's surface at this node — not their finished ratios (see
+    // rawCorrelationAt) — then normalise once at the end.
+    const sumCross = new Float64Array(span * span);
+    const sumVariance = new Float64Array(span * span);
+    let sumPatchNormSq = 0;
+    let pairsUsed = 0;
+    let fractionX = 0;
+    let fractionY = 0;
+    const centres: { entry: (typeof prepared)[number]; cx: number; cy: number }[] = [];
+
+    for (const entry of prepared) {
+      const patch = extractPatch(entry.firstRaw, x, y, window);
+      if (!patch || !entry.second) continue;
+      const camera = cameraDisplacementAt(entry.motion, x, y);
+      const cx = x + Math.round(camera.dx);
+      const cy = y + Math.round(camera.dy);
+      const raw = rawCorrelationSurface(patch, entry.second, cx, cy, radius);
+      let any = false;
+      for (let i = 0; i < raw.cross.length; i += 1) {
+        const variance = raw.windowVarianceSum[i] as number;
+        if (!Number.isFinite(variance)) continue;
+        sumCross[i] = (sumCross[i] as number) + (raw.cross[i] as number);
+        sumVariance[i] = (sumVariance[i] as number) + variance;
+        any = true;
+      }
+      if (!any) continue;
+      sumPatchNormSq += patch.norm * patch.norm;
+      pairsUsed += 1;
+      fractionX += camera.dx - Math.round(camera.dx);
+      fractionY += camera.dy - Math.round(camera.dy);
+      centres.push({ entry, cx, cy });
+    }
+
+    if (pairsUsed === 0) {
+      vectors.push({ ...base, rejectionReason: 'LOW_CORRELATION' });
+      continue;
+    }
+
+    const ensembleSurface = new Float32Array(sumCross.length);
+    for (let i = 0; i < ensembleSurface.length; i += 1) {
+      const denominator = Math.sqrt(sumPatchNormSq * (sumVariance[i] as number));
+      ensembleSurface[i] = denominator > 1e-9 ? (sumCross[i] as number) / denominator : NaN;
+    }
+    const peak = peakOfSurface(ensembleSurface, radius);
+    if (!peak) {
+      vectors.push({ ...base, pairsUsed, rejectionReason: 'NON_FINITE' });
+      continue;
+    }
+
+    // Reverse: the matched window of every second frame tracked back into its
+    // first frame, accumulated the same raw way, must land where it started.
+    const reverseSumCross = new Float64Array(reverseSpan * reverseSpan);
+    const reverseSumVariance = new Float64Array(reverseSpan * reverseSpan);
+    let reversePatchNormSq = 0;
+    for (const { entry, cx, cy } of centres) {
+      if (!entry.first) continue;
+      const reversePatch = extractPatch(entry.secondRaw, cx + peak.dx, cy + peak.dy, window);
+      if (!reversePatch) continue;
+      const raw = rawCorrelationSurface(reversePatch, entry.first, cx + peak.dx, cy + peak.dy, reverseRadius);
+      let any = false;
+      for (let i = 0; i < raw.cross.length; i += 1) {
+        const variance = raw.windowVarianceSum[i] as number;
+        if (!Number.isFinite(variance)) continue;
+        reverseSumCross[i] = (reverseSumCross[i] as number) + (raw.cross[i] as number);
+        reverseSumVariance[i] = (reverseSumVariance[i] as number) + variance;
+        any = true;
+      }
+      if (any) reversePatchNormSq += reversePatch.norm * reversePatch.norm;
+    }
+    const reverseSurface = new Float32Array(reverseSumCross.length);
+    for (let i = 0; i < reverseSurface.length; i += 1) {
+      const denominator = Math.sqrt(reversePatchNormSq * (reverseSumVariance[i] as number));
+      reverseSurface[i] = denominator > 1e-9 ? (reverseSumCross[i] as number) / denominator : NaN;
+    }
+    const reversePeak = peakOfSurface(reverseSurface, reverseRadius);
+    // The reverse surface is centred where the forward peak landed, so a
+    // consistent match returns to the node: reverse ≈ −forward.
+    const forwardBackwardPx = reversePeak
+      ? Math.hypot(peak.subDx + reversePeak.subDx, peak.subDy + reversePeak.subDy)
+      : Number.POSITIVE_INFINITY;
+
+    const dxPx = peak.subDx - fractionX / pairsUsed;
+    const dyPx = peak.subDy - fractionY / pairsUsed;
+
+    vectors.push({
+      ...base,
+      dxPx,
+      dyPx,
+      correlation: peak.correlation,
+      peakRatio: peak.peakRatio,
+      snr: peak.snr,
+      uncertaintyPx: peak.uncertaintyPx,
+      forwardBackwardPx,
+      pairsUsed,
+      accepted: false,
+      ...(peak.atSearchEdge ? { rejectionReason: 'SEARCH_WINDOW_EDGE' as const } : {}),
+    });
+  }
+
+  return { vectors, pairsUsed: members.length, frameDeltaS };
+}
+
+/**
+ * The gate every candidate set passes on its way to a velocity: a robust
+ * direction and a robust magnitude band. Surface flow is unidirectional over
+ * a short clip and its speed varies smoothly, so anything pointing elsewhere
+ * or far off the median speed is a mismatch, not a measurement.
+ */
+function robustGate<T extends { dxPx: number; dyPx: number }>(
+  candidates: readonly T[]
+): { accepted: T[]; directional: T[]; magnitude: T[] } {
+  const accepted: T[] = [];
+  const directional: T[] = [];
+  const magnitude: T[] = [];
+  if (candidates.length === 0) return { accepted, directional, magnitude };
+
+  const centreAngle = robustDirection(
+    candidates.map((vector) => vector.dxPx),
+    candidates.map((vector) => vector.dyPx)
+  );
+  const magnitudes = candidates.map((vector) => Math.hypot(vector.dxPx, vector.dyPx));
+  const centreMagnitude = median(magnitudes);
+  const magnitudeMad = medianAbsoluteDeviation(magnitudes, centreMagnitude);
+  const magnitudeBand = Number.isFinite(magnitudeMad) && magnitudeMad > 1e-6 ? 3 * magnitudeMad : 1;
+
+  for (const vector of candidates) {
+    const angle = Math.atan2(vector.dyPx, vector.dxPx);
+    if (angleDifference(angle, centreAngle) > Math.PI / 4) {
+      directional.push(vector);
+      continue;
+    }
+    if (Math.abs(Math.hypot(vector.dxPx, vector.dyPx) - centreMagnitude) > magnitudeBand) {
+      magnitude.push(vector);
+      continue;
+    }
+    accepted.push(vector);
+  }
+  return { accepted, directional, magnitude };
+}
+
 export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFailure> {
   const { clip, roi, knownDimensions } = input;
 
@@ -247,7 +502,18 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   }
   const homography: Homography = calibration.value;
 
-  const stabilisation = stabiliseAll(clip.pairs, roi);
+  // ZNCC already removes each window's own mean and scales by its own
+  // variance (see correlateAt), which is what a high-pass filter would try to
+  // do for illumination gradients narrower than a window. A filter wide
+  // enough to be safe for genuine ripple texture turned out to leak static
+  // background through a sharp bank/water edge into an otherwise glassy,
+  // untrackable surface and correlate it against itself at zero displacement
+  // — a phantom flow signal on water that carries nothing. ZNCC's local
+  // normalisation has no such cross-region leak, so no separate filtering
+  // step runs here.
+  const pairs = clip.pairs;
+
+  const stabilisation = stabiliseAll(pairs, roi);
   const stablePairs = stabilisation.filter((entry) => entry.stable);
   if (stablePairs.length < SSIV_THRESHOLDS.minStablePairs) {
     return err(
@@ -269,16 +535,61 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const minUsableDeltaS = SSIV_THRESHOLDS.minFrameDeltaS * (1 - deltaTolerance);
   const maxUsableDeltaS = SSIV_THRESHOLDS.maxFrameDeltaS * (1 + deltaTolerance);
 
+  // The ensemble estimate: correlation surfaces of every stabilised pair
+  // averaged before a peak is looked for, judged by the same filters as the
+  // per-pair vectors and then the same robust gate, node by node. Computed
+  // up front, alongside the per-pair pass, because a texture too weak for any
+  // single pair is exactly what this is for — the INSUFFICIENT_TEXTURE gate
+  // below has to see it before giving up.
+  const ensembleRun = measureEnsemble(pairs, stabilisation, roi);
+  const ensemble = ensembleRun.vectors;
+  const ensembleVelocities: number[] = [];
+  {
+    const survivors: EnsembleVector[] = [];
+    for (const node of ensemble) {
+      const rejection = applyPointFilters(node);
+      if (rejection) {
+        node.accepted = false;
+        node.rejectionReason = rejection;
+      } else {
+        delete node.rejectionReason;
+        survivors.push(node);
+      }
+    }
+    const gate = robustGate(survivors);
+    for (const node of gate.directional) {
+      node.accepted = false;
+      node.rejectionReason = 'DIRECTIONAL_OUTLIER';
+    }
+    for (const node of gate.magnitude) {
+      node.accepted = false;
+      node.rejectionReason = 'SPATIAL_OUTLIER';
+    }
+    for (const node of gate.accepted) {
+      const metric = metricDisplacement(homography, node.x, node.y, node.dxPx, node.dyPx);
+      if (!metric || !Number.isFinite(metric.distanceM) || !(node.frameDeltaS > 0)) {
+        node.accepted = false;
+        node.rejectionReason = 'NON_FINITE';
+        continue;
+      }
+      node.displacementM = metric.distanceM;
+      node.velocityMs = metric.distanceM / node.frameDeltaS;
+      node.accepted = true;
+      ensembleVelocities.push(node.velocityMs);
+    }
+  }
+  const acceptedEnsemble = ensemble.filter((node) => node.accepted);
+
   const allVectors: RawVector[] = [];
   const mistimedPairs: number[] = [];
-  for (const pair of clip.pairs) {
+  for (const pair of pairs) {
     const entry = stabilisation.find((item) => item.pairIndex === pair.index);
     if (!entry || !entry.stable) continue; // unstable pairs contribute nothing
     if (pair.frameDeltaS < minUsableDeltaS || pair.frameDeltaS > maxUsableDeltaS) {
       mistimedPairs.push(pair.index);
       continue;
     }
-    allVectors.push(...measurePair(pair, roi, entry.shiftXPx, entry.shiftYPx));
+    allVectors.push(...measurePair(pair, roi, entry));
   }
 
   if (allVectors.length === 0) {
@@ -317,10 +628,14 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
 
   // No point anywhere reached the correlation floor: the water surface carried
   // nothing trackable.
-  const anyTexture = allVectors.some(
-    (vector) =>
-      Number.isFinite(vector.correlation) && vector.correlation >= SSIV_THRESHOLDS.minCorrelation
-  );
+  const anyTexture =
+    allVectors.some(
+      (vector) =>
+        Number.isFinite(vector.correlation) && vector.correlation >= SSIV_THRESHOLDS.minCorrelation
+    ) ||
+    ensemble.some(
+      (node) => Number.isFinite(node.correlation) && node.correlation >= SSIV_THRESHOLDS.minCorrelation
+    );
   if (!anyTexture) {
     return err(
       ssivFailure('INSUFFICIENT_TEXTURE', `median correlation ${medianCorrelation.toFixed(3)}`, {
@@ -353,41 +668,27 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     }
   }
 
-  // Stage 3 — robust centre. The median is the centre; the MAD sets the band.
+  // Stage 3 — robust direction and magnitude band over the coherent vectors.
   let accepted: RawVector[] = [];
-  if (coherent.length > 0) {
-    const magnitudes = coherent.map((vector) => vector.magnitudePx);
-    const centreAngle = robustDirection(
-      coherent.map((vector) => vector.dxPx),
-      coherent.map((vector) => vector.dyPx)
-    );
-    const centreMagnitude = median(magnitudes);
-    const magnitudeMad = medianAbsoluteDeviation(magnitudes, centreMagnitude);
-    const magnitudeBand = Number.isFinite(magnitudeMad) && magnitudeMad > 1e-6 ? 3 * magnitudeMad : 1;
-
-    for (const vector of coherent) {
-      // Surface flow is unidirectional over a short clip; a vector pointing
-      // somewhere else is a mismatch, not a measurement.
-      if (angleDifference(vector.anglRad, centreAngle) > Math.PI / 4) {
-        vector.accepted = false;
-        vector.rejectionReason = 'DIRECTIONAL_OUTLIER';
-        continue;
-      }
-      if (Math.abs(vector.magnitudePx - centreMagnitude) > magnitudeBand) {
-        vector.accepted = false;
-        vector.rejectionReason = 'SPATIAL_OUTLIER';
-        continue;
-      }
-      vector.accepted = true;
-      accepted.push(vector);
+  {
+    const gate = robustGate(coherent);
+    for (const vector of gate.directional) {
+      vector.accepted = false;
+      vector.rejectionReason = 'DIRECTIONAL_OUTLIER';
     }
+    for (const vector of gate.magnitude) {
+      vector.accepted = false;
+      vector.rejectionReason = 'SPATIAL_OUTLIER';
+    }
+    for (const vector of gate.accepted) vector.accepted = true;
+    accepted = gate.accepted;
   }
 
   // Stage 4 — metric conversion through the homography, per vector.
   const velocities: number[] = [];
   const stillAccepted: RawVector[] = [];
   for (const vector of accepted) {
-    const pair = clip.pairs.find((candidate) => candidate.index === vector.pairIndex);
+    const pair = pairs.find((candidate) => candidate.index === vector.pairIndex);
     if (!pair) continue;
     const metric = metricDisplacement(homography, vector.x, vector.y, vector.dxPx, vector.dyPx);
     if (!metric || !Number.isFinite(metric.distanceM) || pair.frameDeltaS <= 0) {
@@ -409,6 +710,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     return rest;
   });
 
+
   const rejectionsByReason = { ...EMPTY_REJECTIONS };
   for (const vector of vectors) {
     if (!vector.accepted && vector.rejectionReason) {
@@ -428,14 +730,22 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     cameraCompensationPx: median(
       stablePairs.map((entry) => Math.hypot(entry.shiftXPx, entry.shiftYPx))
     ),
+    ensembleNodes: ensemble.length,
+    acceptedEnsembleNodes: acceptedEnsemble.length,
+    ensemblePairsUsed: ensembleRun.pairsUsed,
   };
 
-  if (accepted.length < SSIV_THRESHOLDS.minAcceptedVectors) {
+  const ensembleUsable = acceptedEnsemble.length >= SSIV_THRESHOLDS.minAcceptedEnsembleNodes;
+  const instantaneousUsable = accepted.length >= SSIV_THRESHOLDS.minAcceptedVectors;
+
+  if (!ensembleUsable && !instantaneousUsable) {
     return err(
       ssivFailure(
         'INSUFFICIENT_VALID_VECTORS',
-        `${accepted.length}/${vectors.length} vectors passed every filter, ` +
-          `${SSIV_THRESHOLDS.minAcceptedVectors} required` +
+        `${accepted.length}/${vectors.length} vectors and ` +
+          `${acceptedEnsemble.length}/${ensemble.length} ensemble nodes passed every filter, ` +
+          `${SSIV_THRESHOLDS.minAcceptedVectors} vectors or ` +
+          `${SSIV_THRESHOLDS.minAcceptedEnsembleNodes} nodes required` +
           (mistimedPairs.length > 0
             ? ` (${mistimedPairs.length} pair(s) dropped for frame spacing)`
             : ''),
@@ -462,7 +772,15 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     );
   }
 
-  const surfaceVelocity = median(velocities);
+  // The ensemble is the primary estimate: it is what the pairs agree on. The
+  // per-pair median stands in when too few nodes survived, and is reported
+  // alongside either way so the two can be compared.
+  const instantaneousVelocity = velocities.length > 0 ? median(velocities) : undefined;
+  const ensembleVelocity = ensembleVelocities.length > 0 ? median(ensembleVelocities) : undefined;
+  const velocitySource: SsivAnalysis['velocitySource'] =
+    ensembleUsable && ensembleVelocity !== undefined ? 'ensemble' : 'instantaneous';
+  const surfaceVelocity =
+    velocitySource === 'ensemble' ? (ensembleVelocity as number) : (instantaneousVelocity ?? NaN);
   if (!Number.isFinite(surfaceVelocity) || surfaceVelocity <= 0) {
     return err(
       ssivFailure('INSUFFICIENT_VALID_VECTORS', `median velocity ${surfaceVelocity}`, {
@@ -476,7 +794,16 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
 
   return ok({
     surfaceVelocity,
-    velocitySpreadMs: medianAbsoluteDeviation(velocities, surfaceVelocity),
+    velocitySource,
+    ...(instantaneousVelocity !== undefined ? { instantaneousVelocity } : {}),
+    ...(ensembleVelocity !== undefined ? { ensembleVelocity } : {}),
+    velocitySpreadMs:
+      velocities.length > 0
+        ? medianAbsoluteDeviation(velocities, instantaneousVelocity)
+        : Number.NaN,
+    ...(ensembleVelocities.length > 0
+      ? { ensembleSpreadMs: medianAbsoluteDeviation(ensembleVelocities, ensembleVelocity) }
+      : {}),
     calibrationStatus: homography.status,
     frameWidth: clip.width,
     frameHeight: clip.height,
@@ -486,6 +813,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     frameDeltaS: median(frameDeltas),
     stabilisation,
     vectors,
+    ensemble,
     quality,
     thresholds: SSIV_THRESHOLDS,
     algorithmVersion: ALGORITHM_VERSION,

@@ -129,6 +129,31 @@ describe('camera motion compensation', () => {
     expect(motion.stable).toBe(false);
   });
 
+  it('fits a small camera roll as a similarity instead of failing the pair', () => {
+    // 2° of roll moves the frame corners by ~5 px in opposite directions, which
+    // no single translation fits: the anchors would "disagree" and the pair
+    // would be thrown away. A similarity fit takes the roll out.
+    const clip = makeClip({ cameraRotationRad: (2 * Math.PI) / 180, shiftX: 0, shiftY: 0 });
+    const motion = estimateCameraMotion(clip.pairs[0]!, TEST_ROI);
+    expect(motion.stable).toBe(true);
+    expect(motion.model).toBe('similarity');
+    expect(motion.rotationRad).toBeCloseTo((2 * Math.PI) / 180, 2);
+    expect(motion.scale).toBeCloseTo(1, 2);
+    expect(motion.residualPx).toBeLessThan(1.5);
+  });
+
+  it('still measures the water correctly under a camera roll', () => {
+    const rolled = analyse({
+      clip: makeClip({ cameraRotationRad: (1.5 * Math.PI) / 180, shiftX: 0, shiftY: 3 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(rolled.ok).toBe(true);
+    if (!rolled.ok) return;
+    expect(rolled.value.surfaceVelocity).toBeCloseTo(EXPECTED_VELOCITY, 1);
+    expect(rolled.value.stabilisation.every((entry) => entry.model === 'similarity')).toBe(true);
+  });
+
   it('measures a genuine rigid pan and subtracts it', () => {
     // The whole frame moves together: still stable, with a non-zero shift.
     const clip = makeClip({ moving: { x0: 0, x1: 239, y0: 0, y1: 134 }, shiftX: 2, shiftY: 0 });
@@ -199,6 +224,79 @@ describe('SSIV analysis of a known displacement', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.surfaceVelocity).toBeCloseTo(EXPECTED_VELOCITY, 1);
+  });
+});
+
+describe('ensemble correlation', () => {
+  it('agrees with the per-pair median rather than pulling away from it', () => {
+    // Two independently-built estimates of the same water: if the ensemble's
+    // raw-sum accumulation were wrong, this is the check most likely to catch
+    // it — a real bug here (e.g. summing already-normalised ratios instead of
+    // the raw terms, which was tried and produced no such improvement) tends
+    // to show up as the two paths disagreeing, not just as noise.
+    const result = analyse({
+      clip: makeClip({ textureAmplitude: 0.15, noise: 5, pairs: 24 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.velocitySource).toBe('ensemble');
+    expect(result.value.instantaneousVelocity).toBeDefined();
+    expect(result.value.ensembleVelocity).toBeDefined();
+    const ratio = (result.value.ensembleVelocity as number) / (result.value.instantaneousVelocity as number);
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it('narrows around the true value as more pairs are averaged', () => {
+    // What ensemble correlation actually buys, confirmed against the maths in
+    // measureEnsemble's own comment: the expected correlation at the true
+    // offset does not rise with the pair count (it is set by the surface's
+    // own signal-to-noise ratio), but the *spread* of the estimate around
+    // that value shrinks. A run with few pairs and a run with many, same
+    // texture and noise otherwise, should bracket the true velocity more
+    // tightly as pairs grow.
+    const few = analyse({
+      clip: makeClip({ textureAmplitude: 0.15, noise: 8, pairs: 6, seed: 4000 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    const many = analyse({
+      clip: makeClip({ textureAmplitude: 0.15, noise: 8, pairs: 60, seed: 4000 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(few.ok && many.ok).toBe(true);
+    if (!few.ok || !many.ok) return;
+    expect(many.value.ensembleSpreadMs).toBeLessThan(few.value.ensembleSpreadMs as number);
+  });
+
+  it('never turns genuinely glassy water into a phantom zero-motion match', () => {
+    // A pathologically wide filter could leak the static, textured bank
+    // through a sharp bank/water edge and correlate it against itself at zero
+    // displacement — a "flow" reading on a surface that carries nothing. The
+    // ensemble path must fail exactly the way the per-pair path already does.
+    const result = analyse({
+      clip: makeClip({ flatWater: true, pairs: 20 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_TEXTURE');
+  });
+
+  it('reports which frame pairs actually fed the ensemble', () => {
+    const result = analyse({
+      clip: makeClip({ pairs: 6 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.ensemblePairsUsed).toBeGreaterThan(0);
+    expect(result.value.quality.ensembleNodes).toBe(SSIV_THRESHOLDS.gridColumns * SSIV_THRESHOLDS.gridRows);
+    expect(result.value.ensemble.length).toBe(result.value.quality.ensembleNodes);
   });
 });
 

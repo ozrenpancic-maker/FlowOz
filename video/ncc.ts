@@ -233,9 +233,26 @@ export function findPeak(
     }
   }
 
+  return describePeak(surface, radius, bestDx, bestDy, best);
+}
+
+/**
+ * Everything a peak is judged by, read off a correlation surface once the
+ * integer winner is known: how isolated it is, how sharp, where it sits at
+ * sub-pixel precision. Shared by the sparse per-pair search and the dense
+ * ensemble surface, so both are judged by the same rules.
+ */
+export function describePeak(
+  surface: ArrayLike<number>,
+  radius: number,
+  bestDx: number,
+  bestDy: number,
+  best: number
+): CorrelationPeak {
+  const span = 2 * radius + 1;
   const at = (dx: number, dy: number) => {
     if (dx < -radius || dx > radius || dy < -radius || dy > radius) return NaN;
-    return surface[index(dx, dy)] as number;
+    return surface[(dy + radius) * span + (dx + radius)] as number;
   };
 
   // Second peak and off-peak RMS over everything that was actually evaluated.
@@ -292,4 +309,96 @@ export function findPeak(
     uncertaintyPx: Number.isFinite(uncertaintyPx) ? uncertaintyPx : Number.POSITIVE_INFINITY,
     atSearchEdge: Math.abs(bestDx) === radius || Math.abs(bestDy) === radius,
   };
+}
+
+/**
+ * The raw numerator (cross-product of the two mean-subtracted windows) and
+ * denominator term (sum of squared deviations of the search window) at one
+ * offset, kept apart rather than divided.
+ *
+ * This is what ensemble correlation needs and a plain correlation does not:
+ * summing the finished ratio across several frame pairs is not the same as
+ * summing the raw terms and dividing once. A pair's own noise inflates or
+ * deflates its ratio by however much it inflated *that pair's own* window
+ * variance, so an average of ratios still carries each pair's individual
+ * noise. Summed raw, the signal component — the water's real displacement,
+ * identical in every pair — adds directly, while independent per-pair noise
+ * in the numerator has mean zero and cancels other pairs' noise instead of
+ * compounding it. Dividing once, at the end, is what actually gains SNR from
+ * having more pairs.
+ */
+export interface RawCorrelation {
+  cross: number;
+  /** Σ(second window − its own mean)² at this offset. */
+  windowVarianceSum: number;
+}
+
+export function rawCorrelationAt(patch: Patch, grid: PreparedGrid, cx: number, cy: number): RawCorrelation | null {
+  const size = patch.size;
+  const half = Math.floor(size / 2);
+  const x0 = Math.round(cx) - half;
+  const y0 = Math.round(cy) - half;
+  if (x0 < 0 || y0 < 0 || x0 + size > grid.width || y0 + size > grid.height) return null;
+
+  const stride = grid.width + 1;
+  const count = size * size;
+  const windowSum = areaSum(grid.sum, stride, x0, y0, size);
+  const windowSquares = areaSum(grid.sumSquares, stride, x0, y0, size);
+  const windowVarianceSum = windowSquares - (windowSum * windowSum) / count;
+  if (!(windowVarianceSum > 1e-9)) return null; // flat window
+
+  let cross = 0;
+  const values = patch.values;
+  const data = grid.data;
+  for (let row = 0; row < size; row += 1) {
+    const base = (y0 + row) * grid.width + x0;
+    const patchBase = row * size;
+    for (let col = 0; col < size; col += 1) {
+      cross += (values[patchBase + col] as number) * (data[base + col] as number);
+    }
+  }
+  return Number.isFinite(cross) ? { cross, windowVarianceSum } : null;
+}
+
+/** The raw components of {@link rawCorrelationAt} over every offset within ±radius. */
+export function rawCorrelationSurface(
+  patch: Patch,
+  grid: PreparedGrid,
+  cx: number,
+  cy: number,
+  radius: number
+): { cross: Float64Array; windowVarianceSum: Float64Array } {
+  const span = 2 * radius + 1;
+  const cross = new Float64Array(span * span).fill(NaN);
+  const windowVarianceSum = new Float64Array(span * span).fill(NaN);
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      const raw = rawCorrelationAt(patch, grid, cx + dx, cy + dy);
+      if (!raw) continue;
+      const i = (dy + radius) * span + (dx + radius);
+      cross[i] = raw.cross;
+      windowVarianceSum[i] = raw.windowVarianceSum;
+    }
+  }
+  return { cross, windowVarianceSum };
+}
+
+/** The peak of a dense surface, described the same way as a searched one. */
+export function peakOfSurface(surface: ArrayLike<number>, radius: number): CorrelationPeak | null {
+  const span = 2 * radius + 1;
+  let best = -Infinity;
+  let bestDx = 0;
+  let bestDy = 0;
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      const value = surface[(dy + radius) * span + (dx + radius)] as number;
+      if (Number.isFinite(value) && value > best) {
+        best = value;
+        bestDx = dx;
+        bestDy = dy;
+      }
+    }
+  }
+  if (!Number.isFinite(best)) return null;
+  return describePeak(surface, radius, bestDx, bestDy, best);
 }

@@ -10,7 +10,11 @@ import { SSIV_THRESHOLDS } from '../../video/types';
 function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
   return {
     surfaceVelocity: 1.2,
+    velocitySource: 'ensemble',
+    ensembleVelocity: 1.2,
+    instantaneousVelocity: 1.19,
     velocitySpreadMs: 0.05,
+    ensembleSpreadMs: 0.03,
     calibrationStatus: 'VALID',
     frameWidth: 240,
     frameHeight: 135,
@@ -20,6 +24,7 @@ function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
     frameDeltaS: 0.1,
     stabilisation: [],
     vectors: [],
+    ensemble: [],
     quality: {
       totalVectors: 120,
       acceptedVectors: 80,
@@ -39,6 +44,9 @@ function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
       totalPairs: 6,
       medianCorrelation: 0.8,
       cameraCompensationPx: 0.3,
+      ensembleNodes: 20,
+      acceptedEnsembleNodes: 16,
+      ensemblePairsUsed: 6,
     },
     thresholds: SSIV_THRESHOLDS,
     algorithmVersion: ALGORITHM_VERSION,

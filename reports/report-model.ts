@@ -156,6 +156,13 @@ export function buildReportModel(
           'provenance.measuredVideo'
         )
       );
+      if (measurement.videoAnalysis) {
+        methodRows.push({
+          labelKey: 'report.velocitySource',
+          value: measurement.videoAnalysis.velocitySource,
+          valueKey: `video.velocitySource.${measurement.videoAnalysis.velocitySource}`,
+        });
+      }
       methodRows.push(
         numberRow(
           'report.alpha',

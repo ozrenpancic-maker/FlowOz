@@ -462,7 +462,15 @@ export default function VideoVelocityScreen() {
             value={formatNumber(analysis.surfaceVelocity, 4)}
             unit="m/s"
             provenance={t('provenance.measuredVideo')}
+            detail={t(`video.velocitySource.${analysis.velocitySource}`)}
           />
+          {analysis.velocitySource === 'ensemble' && analysis.instantaneousVelocity !== undefined ? (
+            <ValueRow
+              label={t('video.instantaneousVelocity')}
+              value={formatNumber(analysis.instantaneousVelocity, 4)}
+              unit="m/s"
+            />
+          ) : null}
           <ValueRow
             label={t('video.acceptedVectors')}
             value={`${analysis.quality.acceptedVectors}/${analysis.quality.totalVectors}`}
