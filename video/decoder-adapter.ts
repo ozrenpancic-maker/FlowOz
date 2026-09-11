@@ -1,4 +1,5 @@
 import { bytesToLuminance, decodeBase64 } from './base64';
+import { applyClahe } from './clahe';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import type { PlannedPair } from './frame-plan';
 import { SSIV_THRESHOLDS, type DecodedClip, type FramePair } from './types';
@@ -181,12 +182,19 @@ export function framePairFromMessage(
     };
   }
 
+  // Local contrast enhancement before either frame is used for anything —
+  // stabilisation's background anchors and the water interrogation grid both
+  // read the same enhanced plane, so a correlation comparing the two frames
+  // never sees one raw and one stretched.
+  const firstLuminance = applyClahe(bytesToLuminance(first), message.width, message.height);
+  const secondLuminance = applyClahe(bytesToLuminance(second), message.width, message.height);
+
   return {
     ok: true,
     pair: {
       index: message.index,
-      first: bytesToLuminance(first),
-      second: bytesToLuminance(second),
+      first: firstLuminance,
+      second: secondLuminance,
       width: message.width,
       height: message.height,
       frameDeltaS: message.frameDeltaS,
