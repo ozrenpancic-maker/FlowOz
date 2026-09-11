@@ -25,6 +25,7 @@ import type { FlowDirection, SiteCameraReference } from '../domain/types';
 import { MotionSampler } from '../sensors/motion-sampler';
 import { captureDeviceInfo } from '../sensors/device-info';
 import { RoiEditor } from '../ui/RoiEditor';
+import { VectorOverlay } from '../ui/VectorOverlay';
 import { SsivProcessor, type SsivProgress, type SsivRequest } from '../ui/SsivProcessor';
 import {
   Badge,
@@ -548,7 +549,11 @@ export default function VideoVelocityScreen() {
             flowDirection={flowDirection}
           >
             <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="cover" />
+            {analysis ? <VectorOverlay analysis={analysis} /> : null}
           </RoiEditor>
+          {analysis ? (
+            <Muted>{t('video.vectorOverlayHint')}</Muted>
+          ) : null}
 
           <Choice
             label={t('video.flowDirection.title')}

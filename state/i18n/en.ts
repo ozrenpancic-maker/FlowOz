@@ -164,6 +164,10 @@ export const en = {
   'video.stablePairs': 'Stabilised frame pairs',
   'video.alphaUsed': 'Alpha used',
   'video.viewVectors': 'VIEW VECTORS / ANALYSIS',
+  'video.vectorOverlayHint':
+    'Teal arrows show accepted detected motion on the preview above (scrolled ' +
+    'up), red dots show rejected grid points; arrow length is exaggerated for ' +
+    'visibility, not to real scale.',
   'video.useResult': 'USE THIS RESULT',
   'video.experimentalBadge': 'EXPERIMENTAL · NOT A VALIDATED LSPIV',
   'video.noVideo': 'No video selected yet.',

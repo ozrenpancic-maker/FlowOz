@@ -163,6 +163,10 @@ export const hr: Record<keyof typeof en, string> = {
   'video.stablePairs': 'Stabilizirani parovi kadrova',
   'video.alphaUsed': 'Korišteni alpha',
   'video.viewVectors': 'PRIKAŽI VEKTORE / ANALIZU',
+  'video.vectorOverlayHint':
+    'Tirkizne strelice pokazuju prihvaćeno otkriveno gibanje na pregledu iznad ' +
+    '(skrolajte gore), crvene točke pokazuju odbačene točke mreže; duljina ' +
+    'strelice je pretjerana radi vidljivosti, nije u stvarnom mjerilu.',
   'video.useResult': 'UPOTRIJEBI OVAJ REZULTAT',
   'video.experimentalBadge': 'EKSPERIMENTALNO · NIJE VALIDIRANI LSPIV',
   'video.noVideo': 'Video još nije odabran.',

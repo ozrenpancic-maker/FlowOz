@@ -28,6 +28,7 @@ import {
   SectionTitle,
   ValueRow,
 } from '../../ui/components';
+import { VectorOverlay } from '../../ui/VectorOverlay';
 import { colors, gradeTone, radius, spacing, typography } from '../../ui/theme';
 
 export default function MeasurementDetailScreen() {
@@ -313,7 +314,9 @@ export default function MeasurementDetailScreen() {
                 <Muted>{t('saved.videoPreview')}</Muted>
                 <View style={styles.videoFrame}>
                   <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="contain" />
+                  {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
                 </View>
+                {analysis ? <Muted>{t('video.vectorOverlayHint')}</Muted> : null}
               </>
             )
           ) : null}
