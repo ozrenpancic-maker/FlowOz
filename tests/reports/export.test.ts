@@ -235,8 +235,15 @@ describe('CSV export', () => {
     for (const column of [
       'camera_width_px',
       'camera_height_px',
+      'zoom',
       'nominal_fps',
       'actual_fps',
+      'delta_t_s',
+      'streamwise_velocity_m_s',
+      'lateral_velocity_m_s',
+      'speed_magnitude_m_s',
+      'cross_flow_ratio',
+      'ssiv_snr',
       'pitch_deg',
       'roll_deg',
       'angular_velocity_rms_deg_s',
@@ -249,8 +256,10 @@ describe('CSV export', () => {
       expect(row[column]).toBeNull();
     }
     expect(row.camera_lens).toBe('');
+    expect(row.timing_source).toBe('');
     const cells = (toCsv([measurement], 'international').split('\r\n')[1] ?? '').split(',');
     expect(cells[CSV_COLUMNS.indexOf('pitch_deg')]).toBe('');
+    expect(cells[CSV_COLUMNS.indexOf('timing_source')]).toBe('');
   });
 
   it('populates the acquisition columns from a real sensor snapshot', () => {

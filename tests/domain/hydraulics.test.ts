@@ -6,7 +6,7 @@ import {
   toLitresPerSecond,
   videoFlow,
 } from '../../domain/hydraulics';
-import { activeAlpha, deriveAlpha } from '../../domain/calibration';
+import { activeAlpha, calibratedDepthRange, deriveAlpha } from '../../domain/calibration';
 import { buildReport, checkValue } from '../../domain/plausibility';
 import type { SectionProperties } from '../../domain/types';
 import { DEFAULT_ALPHA } from '../../domain/types';
@@ -173,6 +173,23 @@ describe('alpha calibration', () => {
       expect(active.alpha).toBe(DEFAULT_ALPHA);
       expect(active.status).toBe('calibrating');
     }
+  });
+
+  it('reports the depth range spanned by the valid calibration points only', () => {
+    const shallow = deriveAlpha({ ...base, id: 'shallow', depth: 0.1, referenceFlow: 0.4 });
+    const deep = deriveAlpha({ ...base, id: 'deep', depth: 0.35, referenceFlow: 0.45 });
+    const invalid = deriveAlpha({ ...base, id: 'invalid', depth: 0.9, referenceFlow: 5 }); // out of range alpha
+    expect(shallow.ok && deep.ok && invalid.ok).toBe(true);
+    if (!shallow.ok || !deep.ok || !invalid.ok) return;
+
+    const range = calibratedDepthRange([shallow.value, deep.value, invalid.value]);
+    expect(range).toEqual({ minDepth: 0.1, maxDepth: 0.35 });
+  });
+
+  it('has no calibrated range when there are no valid points', () => {
+    expect(calibratedDepthRange([])).toBeNull();
+    const invalid = deriveAlpha({ ...base, referenceFlow: 5 });
+    if (invalid.ok) expect(calibratedDepthRange([invalid.value])).toBeNull();
   });
 });
 

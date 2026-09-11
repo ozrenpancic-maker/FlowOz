@@ -218,12 +218,15 @@ describe('calculate', () => {
     const result = calculate(
       makeDraft({
         levelMethod: 'camera-assisted',
-        cameraLevelFit: fit.value,
-        cameraLevelRimPoints: points,
-        cameraLevelWaterlinePoints: [
-          { x: 100, y: 160 },
-          { x: 180, y: 100 },
-        ],
+        cameraLevelEvidence: {
+          fit: fit.value,
+          rimPoints: points,
+          waterlinePoints: [
+            { x: 100, y: 160 },
+            { x: 180, y: 100 },
+          ],
+          algorithmVersion: 'ssiv-1.0.0',
+        },
       })
     );
     expect(result.ok).toBe(true);
@@ -295,7 +298,7 @@ describe('quality grading', () => {
     const level = gradeLevel({
       provenance: 'MEASURED',
       depthValid: true,
-      cameraAssisted: { residualPx: 0.4, pointCount: 12 },
+      cameraAssisted: { evidence: { residualPx: 0.4, pointCount: 12 } },
     });
     expect(level.grade).toBe('B');
     expect(level.reasonKey).toBe('quality.level.cameraNotMetrologicallyValidated');
@@ -427,20 +430,23 @@ describe('saved measurement assembly', () => {
 
     const draft = makeDraft({
       levelMethod: 'camera-assisted',
-      cameraLevelFit: fit.value,
-      cameraLevelRimPoints: points,
-      cameraLevelWaterlinePoints: waterlinePoints,
+      cameraLevelEvidence: {
+        fit: fit.value,
+        rimPoints: points,
+        waterlinePoints,
+        algorithmVersion: 'ssiv-1.0.0',
+      },
     });
     const outcome = calculate(draft);
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
 
     const measurement = buildSavedMeasurement('m-1', 'FV-1', draft, outcome.value);
-    expect(measurement.cameraLevelFit).toEqual(fit.value);
-    expect(measurement.cameraLevelRimPoints).toEqual(points);
-    expect(measurement.cameraLevelWaterlinePoints).toEqual(waterlinePoints);
+    expect(measurement.cameraLevelEvidence?.fit).toEqual(fit.value);
+    expect(measurement.cameraLevelEvidence?.rimPoints).toEqual(points);
+    expect(measurement.cameraLevelEvidence?.waterlinePoints).toEqual(waterlinePoints);
     // And it is part of the immutable evidence snapshot too.
-    expect(measurement.raw.draft.cameraLevelFit).toEqual(fit.value);
+    expect(measurement.raw.draft.cameraLevelEvidence?.fit).toEqual(fit.value);
   });
 
   it('persists the lateral-profile cross-check onto the saved record', () => {

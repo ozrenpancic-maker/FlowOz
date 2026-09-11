@@ -68,6 +68,27 @@ export function deriveAlpha(input: CalibrationInput): Result<CalibrationPoint, C
   return ok(point);
 }
 
+export interface CalibratedRange {
+  minDepth: number;
+  maxDepth: number;
+}
+
+/**
+ * The depth range spanned by the site's valid calibration points.
+ *
+ * This is evidence for a future validated `alpha = f(h)` or `f(h/D)` model
+ * and a future "OUTSIDE CALIBRATED RANGE" flag — neither is implemented
+ * here. Today's active alpha is still the single mean in `activeAlpha`; this
+ * range is only displayed so the operator can see how far a single-value
+ * alpha has actually been checked, not to gate or adjust anything.
+ */
+export function calibratedDepthRange(points: readonly CalibrationPoint[]): CalibratedRange | null {
+  const valid = points.filter((point) => point.valid && isPositiveFinite(point.depth));
+  if (valid.length === 0) return null;
+  const depths = valid.map((point) => point.depth);
+  return { minDepth: Math.min(...depths), maxDepth: Math.max(...depths) };
+}
+
 export interface ActiveAlpha {
   alpha: number;
   status: AlphaStatus;

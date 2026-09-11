@@ -5,6 +5,7 @@ import { classifyAccuracy } from '../domain/gps';
 import { materialLabelKey } from '../domain/roughness';
 import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
 import { classifyStability } from '../domain/sensor-snapshot';
+import { median } from '../domain/linalg';
 import { gradeContrast, gradeExposure, gradeGlare, gradeSharpness } from '../video/image-quality';
 import type { AppSettings } from '../storage/settings';
 
@@ -341,9 +342,45 @@ export function buildReportModel(
     if (measurement.location?.accuracy !== undefined) {
       rows.push(numberRow('report.acquisitionGpsAccuracy', measurement.location.accuracy, 1, 'm'));
     }
+    if (snapshot.camera.timingSource) {
+      rows.push({ labelKey: 'report.acquisitionTimingSource', value: snapshot.camera.timingSource });
+    }
+    const videoAnalysis = measurement.videoAnalysis;
+    if (videoAnalysis) {
+      rows.push(numberRow('report.acquisitionDeltaT', videoAnalysis.frameDeltaS, 4, 's'));
+      rows.push(numberRow('report.acquisitionCrossFlowRatio', videoAnalysis.quality.crossFlowRatio, 3));
+      if (videoAnalysis.lateralVelocity !== undefined) {
+        rows.push(numberRow('report.acquisitionLateralVelocity', videoAnalysis.lateralVelocity, 4, 'm/s'));
+      }
+      const acceptedSnr = videoAnalysis.vectors
+        .filter((vector) => vector.accepted)
+        .map((vector) => vector.snr);
+      if (acceptedSnr.length > 0) {
+        rows.push(numberRow('report.acquisitionSsivSnr', median(acceptedSnr), 2));
+      }
+      rows.push({ labelKey: 'report.acquisitionAlgorithmVersion', value: videoAnalysis.algorithmVersion });
+    }
     if (rows.length > 0) {
       sections.push({ titleKey: 'report.section.acquisition', rows });
     }
+  }
+
+  if (settings.pdfIncludeAcquisition && measurement.cameraLevelEvidence) {
+    const evidence = measurement.cameraLevelEvidence;
+    sections.push({
+      titleKey: 'report.section.cameraLevelEvidence',
+      rows: [
+        numberRow('report.cameraLevelResidual', evidence.fit.residual, 3, 'px'),
+        {
+          labelKey: 'report.cameraLevelInliers',
+          value: `${evidence.fit.inlierCount} / ${evidence.fit.rejectedCount}`,
+        },
+        numberRow('report.cameraLevelAxisRatio', evidence.fit.axisRatio, 3),
+        ...(evidence.pitchDeg !== undefined ? [numberRow('report.acquisitionOrientationPitch', evidence.pitchDeg, 1, '°')] : []),
+        ...(evidence.rollDeg !== undefined ? [numberRow('report.acquisitionOrientationRoll', evidence.rollDeg, 1, '°')] : []),
+        { labelKey: 'report.acquisitionAlgorithmVersion', value: evidence.algorithmVersion },
+      ],
+    });
   }
 
   const warnings: ReportModel['warnings'] = [];

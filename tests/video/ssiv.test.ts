@@ -5,6 +5,7 @@ import { estimateCameraMotion } from '../../video/stabilisation';
 import { SSIV_THRESHOLDS } from '../../video/types';
 import { makeClip, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
 import { median } from '../../domain/linalg';
+import { lateralVelocityProfile } from '../../video/lateral-profile';
 
 /**
  * The synthetic clip translates the texture inside the ROI by a known number of
@@ -117,6 +118,47 @@ describe('flow direction', () => {
     const sampled = result.value.vectors.find((vector) => vector.accepted);
     expect(sampled?.lateralVelocityMs).toBeDefined();
     expect(Math.abs(sampled?.lateralVelocityMs ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('reports an exact 45° diagonal displacement using only its streamwise half, not the full diagonal length', () => {
+    // Equal shift on both axes: streamwise and lateral must come out equal in
+    // magnitude too, and Q must be built from the smaller streamwise number,
+    // not from the longer diagonal vector.
+    const streamwise = (3 * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
+    const lateral = (3 * (TEST_DIMENSIONS.widthM / 96)) / 0.1;
+    const magnitude = Math.hypot(streamwise, lateral);
+
+    const result = analyse({
+      clip: makeClip({ shiftX: 3, shiftY: 3 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
+    expect(result.value.surfaceVelocity).toBeLessThan(magnitude);
+  });
+
+  it('rejects a reversed-relative-to-ROI flow by default, and recovers it once flowDirection is REVERSED', () => {
+    // shiftY < 0 means the water moves against the ROI's own 1-2 -> 4-3
+    // convention — a real situation when the operator drew the ROI with the
+    // near/far edges swapped relative to the true flow.
+    const reversedFlow = makeClip({ shiftX: 0, shiftY: -3 });
+
+    const withoutOverride = analyse({ clip: reversedFlow, roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(withoutOverride.ok).toBe(false);
+
+    const streamwise = (3 * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
+    const corrected = analyse({
+      clip: reversedFlow,
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+      flowDirection: 'REVERSED',
+    });
+    expect(corrected.ok).toBe(true);
+    if (!corrected.ok) return;
+    expect(corrected.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
+    expect(corrected.value.surfaceVelocity).toBeGreaterThan(0);
   });
 });
 
@@ -503,5 +545,37 @@ describe('raw vector metadata contract', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.stabilisation).toHaveLength(result.value.sampledPairs);
+  });
+});
+
+describe('spatial coherence', () => {
+  it('is judged against local grid neighbours, not the whole ROI — a real shear profile is not rejected as noise', () => {
+    // Slower at both banks (columns 0 and 3), faster at the centre (columns 1
+    // and 2): a completely ordinary channel velocity profile. A global-median
+    // coherence check would read the edge columns as disagreeing with the
+    // centre and reject them; a local check must not.
+    const result = analyse({
+      clip: makeClip({ shiftYByColumn: [1.5, 4, 4, 1.5], pairs: 8 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The shear itself must not be flagged as spatial noise.
+    expect(result.value.quality.rejectionsByReason.SPATIAL_OUTLIER).toBe(0);
+
+    const { columns } = lateralVelocityProfile(result.value);
+    const byColumn = new Map(columns.map((c) => [c.column, c.surfaceVelocityMs]));
+    const edge0 = byColumn.get(0) as number;
+    const centre1 = byColumn.get(1) as number;
+    const centre2 = byColumn.get(2) as number;
+    const edge3 = byColumn.get(3) as number;
+    expect(edge0).toBeDefined();
+    expect(edge3).toBeDefined();
+    // The real shear must survive into the reported per-column profile: the
+    // banks read slower than the centre, not homogenised towards one value.
+    expect(centre1).toBeGreaterThan(edge0);
+    expect(centre2).toBeGreaterThan(edge3);
   });
 });

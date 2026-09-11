@@ -48,3 +48,43 @@ describe('field gate checklist', () => {
     expect(checklist).toContain('permanently blocked');
   });
 });
+
+describe('v1.0.7 upgrade checklist', () => {
+  const upgradeChecklist = readFileSync(join(__dirname, 'V1.0.7-UPGRADE-CHECKLIST.md'), 'utf8');
+
+  it('keeps all 20 items', () => {
+    for (let item = 1; item <= 20; item += 1) {
+      expect(upgradeChecklist).toContain(`| ${item} |`);
+    }
+  });
+
+  it('names the exact version being verified', () => {
+    expect(upgradeChecklist).toContain('versionName 1.0.7');
+    expect(upgradeChecklist).toContain('versionCode 8');
+  });
+
+  it('requires installing over the previous build, not a clean reinstall', () => {
+    expect(upgradeChecklist).toContain('Install the new APK over versionCode 7');
+    expect(upgradeChecklist).toContain('do not uninstall first');
+  });
+
+  it('covers sensor evidence, not just the happy-path measurement', () => {
+    for (const evidence of ['SensorSnapshot', 'pitch/roll', 'RMS', 'UNAVAILABLE']) {
+      expect(upgradeChecklist).toContain(evidence);
+    }
+  });
+
+  it('covers the new draggable water-line editor', () => {
+    expect(upgradeChecklist).toContain('rotation handle');
+    expect(upgradeChecklist).toContain('Undo');
+    expect(upgradeChecklist).toContain('Reset');
+  });
+
+  it('never claims this checklist proves measurement accuracy', () => {
+    expect(upgradeChecklist).toContain('does not establish measurement');
+  });
+
+  it('ties this checklist to Live Flow staying paused', () => {
+    expect(upgradeChecklist).toContain('Live Flow');
+  });
+});

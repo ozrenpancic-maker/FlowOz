@@ -97,13 +97,24 @@ export interface NormalizedPoint {
 }
 
 /** Four-point ROI quadrilateral in normalised image coordinates. Flow runs from
- * the top edge (points 1–2) towards the bottom edge (points 4–3). */
+ * the top edge (points 1–2) towards the bottom edge (points 4–3), unless
+ * FlowDirection says otherwise. */
 export interface WaterRoi {
   topLeft: NormalizedPoint;
   topRight: NormalizedPoint;
   bottomRight: NormalizedPoint;
   bottomLeft: NormalizedPoint;
 }
+
+/**
+ * Which ROI edge the water actually flows towards. FORWARD is the ROI's own
+ * drawn convention (edge 1-2 towards edge 4-3); REVERSED flips the sign of
+ * the streamwise component the SSIV pipeline reports, without touching the
+ * ROI geometry or the metric calibration — for when the operator's ROI has
+ * the near and far edges swapped relative to the true flow direction.
+ * Absent on an older saved measurement means FORWARD, its implicit default.
+ */
+export type FlowDirection = 'FORWARD' | 'REVERSED';
 
 /**
  * The one supported metric scale: physical ROI dimensions entered by the
@@ -114,6 +125,39 @@ export interface KnownRoiDimensions {
   widthM: number;
   /** Physical length along the flow, between the top and bottom ROI edges [m]. */
   lengthM: number;
+}
+
+/**
+ * Full evidence behind a camera-assisted level reading — everything the
+ * ellipse fit actually produced, plus the device pose at capture time. No
+ * field here is ever a placeholder: an absent optional field means the value
+ * was not available, never a guessed 0/NaN. Camera Level remains
+ * EXPERIMENTAL (see EllipseFit's own doc comment) — this only records what
+ * was measured, it does not upgrade the method's confidence.
+ */
+export interface CameraLevelEvidence {
+  /** The photo's own pixel dimensions, not the preview box's. */
+  sourceImageWidth?: number;
+  sourceImageHeight?: number;
+  /** Points the operator marked on the rim, in the photo's source pixels. */
+  rimPoints: Point2D[];
+  /** The two water-line endpoints, same coordinate space as rimPoints — kept
+   * for backward compatibility with the depth maths, whether the operator
+   * placed them as points or by dragging the line described below. */
+  waterlinePoints: Point2D[];
+  /** The water-line's own mathematical representation, when it was set via
+   * the draggable-line editor: a midpoint and angle in source pixels
+   * (domain/water-line.ts), which waterlinePoints above is derived from. */
+  waterLineModel?: { midpointX: number; midpointY: number; angleRad: number; halfLengthPx: number };
+  /** The ellipse/conic actually fitted to rimPoints — conic coefficients,
+   * centre, semi-major/minor axes, rotation, RMS residual, inlier/rejected
+   * counts and axis ratio all live here. Never a placeholder. */
+  fit: EllipseFit;
+  gravityVector?: GravityVector;
+  pitchDeg?: number;
+  rollDeg?: number;
+  imageOrientation?: string;
+  algorithmVersion: string;
 }
 
 export interface CalibrationPoint {
@@ -168,19 +212,17 @@ export interface MeasurementDraft {
   photoUri?: string;
   gravity?: GravityVector;
   orientation?: string;
-  /** Points the operator marked on the rim, in the photo preview's own pixels. */
-  cameraLevelRimPoints?: Point2D[];
-  /** The two water-line points, same coordinate space as cameraLevelRimPoints. */
-  cameraLevelWaterlinePoints?: Point2D[];
-  /** The ellipse actually fitted to cameraLevelRimPoints — the real evidence
-   * behind the camera-assisted level grade, not a placeholder. */
-  cameraLevelFit?: EllipseFit;
+  /** Full camera-assisted level evidence — rim/waterline points, ellipse fit
+   * and device pose, all in one frozen structure. */
+  cameraLevelEvidence?: CameraLevelEvidence;
   /** Video velocity evidence. */
   videoUri?: string;
   videoDuration?: number;
   videoSource?: VideoSource;
   videoCapturedAt?: string;
   waterRoi?: WaterRoi;
+  /** Defaults to FORWARD (the ROI's own drawn edge 1-2 -> 4-3 convention). */
+  flowDirection?: FlowDirection;
   knownRoiDimensions?: KnownRoiDimensions;
   surfaceVelocity?: number;
   alpha: number;

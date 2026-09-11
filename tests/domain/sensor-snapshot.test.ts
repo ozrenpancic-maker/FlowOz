@@ -1,4 +1,5 @@
 import {
+  CAMERA_CAPABILITY_MATRIX,
   cameraConfigurationChanged,
   cameraFingerprint,
   classifyStability,
@@ -10,6 +11,24 @@ import {
   type CameraMetadata,
   type RawMotionSamples,
 } from '../../domain/sensor-snapshot';
+
+describe('CAMERA_CAPABILITY_MATRIX wording', () => {
+  const rowFor = (property: string) => {
+    const row = CAMERA_CAPABILITY_MATRIX.find((entry) => entry.property === property);
+    if (!row) throw new Error(`no capability row for ${property}`);
+    return row;
+  };
+
+  it('reports lens ID and focal length as not available through the current stack', () => {
+    expect(rowFor('Camera/lens ID').status).toBe('NOT AVAILABLE THROUGH CURRENT STACK');
+    expect(rowFor('Focal length').status).toBe('NOT AVAILABLE THROUGH CURRENT STACK');
+  });
+
+  it('reports intrinsics and distortion as needing a future native implementation', () => {
+    expect(rowFor('Camera intrinsics (fx/fy/cx/cy)').status).toBe('FUTURE NATIVE IMPLEMENTATION');
+    expect(rowFor('Distortion coefficients').status).toBe('FUTURE NATIVE IMPLEMENTATION');
+  });
+});
 
 function fakeCamera(overrides: Partial<CameraMetadata> = {}): CameraMetadata {
   return {

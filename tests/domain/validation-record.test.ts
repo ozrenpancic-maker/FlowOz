@@ -156,4 +156,41 @@ describe('buildValidationRecord', () => {
     const record = buildValidationRecord('v-7', makeMeasurement('m-7'));
     expect('numericalClosureErrorPx' in record).toBe(false);
   });
+
+  it('carries waterDepthM, crossFlowRatio and timingSource when the measurement has them', () => {
+    const analysis = fakeAnalysis({ quality: { ...fakeAnalysis().quality, crossFlowRatio: 0.42 } });
+    const measurement = {
+      ...makeMeasurement('m-8', {
+        method: 'video',
+        surfaceVelocity: 1.2,
+        depth: 0.31,
+        sensorSnapshot: {
+          timestamp: Date.now(),
+          device: { appVersion: '1.0.7', algorithmVersion: 'ssiv-1.0.0' },
+          camera: {
+            available: true,
+            facing: 'back' as const,
+            intrinsicsAvailable: false,
+            distortionAvailable: false,
+            timingSource: 'WEBVIEW_MEDIA_TIME' as const,
+          },
+          motion: { accelerometerAvailable: false, gyroscopeAvailable: false, deviceMotionAvailable: false },
+        },
+      }),
+      videoAnalysis: analysis,
+    };
+    const record = buildValidationRecord('v-8', measurement);
+    expect(record.waterDepthM).toBe(0.31);
+    expect(record.crossFlowRatio).toBeCloseTo(0.42, 9);
+    expect(record.timingSource).toBe('WEBVIEW_MEDIA_TIME');
+  });
+
+  it('leaves crossFlowRatio and timingSource absent without a video analysis or sensor snapshot, but always carries the saved depth', () => {
+    const measurement = makeMeasurement('m-9');
+    const record = buildValidationRecord('v-9', measurement);
+    // depth is a required field on every SavedMeasurement — always present.
+    expect(record.waterDepthM).toBe(measurement.depth);
+    expect(record.crossFlowRatio).toBeUndefined();
+    expect(record.timingSource).toBeUndefined();
+  });
 });

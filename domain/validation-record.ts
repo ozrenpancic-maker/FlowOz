@@ -2,6 +2,7 @@ import { median } from './linalg';
 import type { SavedMeasurement } from './measurement';
 import type { KnownRoiDimensions, ReferenceInstrument, WaterRoi } from './types';
 import type { CalibrationStatus } from '../video/types';
+import type { TimingSource } from './sensor-snapshot';
 
 /**
  * Validation dataset model (Phase 18).
@@ -32,6 +33,16 @@ export interface ValidationRecord {
   /** FlowVision's own saved result for the same measurement. */
   flowVisionFlowM3s?: number;
   flowVisionVelocityMs?: number;
+
+  /** Water depth h used for this measurement [m]. */
+  waterDepthM?: number;
+
+  /** Median |lateral| / median |streamwise| over the vectors that fed
+   * flowVisionVelocityMs — see SsivQualitySummary.crossFlowRatio. */
+  crossFlowRatio?: number;
+
+  /** Where the video's frame timing came from — see domain/sensor-snapshot.ts. */
+  timingSource?: TimingSource;
 
   /** Camera angle at acquisition. */
   pitchDeg?: number;
@@ -98,6 +109,9 @@ export function buildValidationRecord(
     ...(reference?.instrument ? { referenceInstrument: reference.instrument } : {}),
     ...(typeof measurement.flowM3s === 'number' ? { flowVisionFlowM3s: measurement.flowM3s } : {}),
     ...(measurement.surfaceVelocity !== undefined ? { flowVisionVelocityMs: measurement.surfaceVelocity } : {}),
+    ...(typeof measurement.depth === 'number' ? { waterDepthM: measurement.depth } : {}),
+    ...(analysis ? { crossFlowRatio: analysis.quality.crossFlowRatio } : {}),
+    ...(snapshot?.camera.timingSource ? { timingSource: snapshot.camera.timingSource } : {}),
     ...(snapshot?.motion.pitchDeg !== undefined ? { pitchDeg: snapshot.motion.pitchDeg } : {}),
     ...(snapshot?.motion.rollDeg !== undefined ? { rollDeg: snapshot.motion.rollDeg } : {}),
     ...(snapshot?.motion.angularVelocityRmsDegPerSec !== undefined

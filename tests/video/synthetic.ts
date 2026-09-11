@@ -54,6 +54,14 @@ export interface SyntheticOptions {
   /** Displacement of the moving region between the two frames [px]. */
   shiftX?: number;
   shiftY?: number;
+  /**
+   * A per-column streamwise shift [px], overriding the constant `shiftY`
+   * inside TEST_ROI's own x-range (72–168 px on the default 240×135 frame,
+   * matching TEST_ROI's 0.3–0.7 normalised bounds). Column 0 is the bank
+   * nearest topLeft. Used to build a realistic shear profile — slower at the
+   * edges, faster at the centre — rather than one uniform velocity.
+   */
+  shiftYByColumn?: number[];
   frameDeltaS?: number;
   pairs?: number;
   /** Bounds of the moving region in pixels. */
@@ -148,6 +156,21 @@ export function makeClip(options: SyntheticOptions = {}): DecodedClip {
           // Glassy water: the bank is sharp, the surface carries nothing.
           first[i] = 128 + jitter();
           second[i] = 128 + jitter();
+          continue;
+        }
+        if (options.shiftYByColumn && insideMoving) {
+          // TEST_ROI spans x = 0.3..0.7 of the frame width (72..168 px on the
+          // default 240px-wide frame) — the same bounds every other test in
+          // this suite already relies on.
+          const roiX0 = width * 0.3;
+          const roiX1 = width * 0.7;
+          const columns = options.shiftYByColumn.length;
+          const columnIndex = Math.min(
+            columns - 1,
+            Math.max(0, Math.floor(((x - roiX0) / (roiX1 - roiX0)) * columns))
+          );
+          const columnShiftY = options.shiftYByColumn[columnIndex] as number;
+          second[i] = texture(x - shiftX, y - columnShiftY) + jitter();
           continue;
         }
         second[i] = insideMoving ? texture(x - shiftX, y - shiftY) + jitter() : texture(x, y) + jitter();

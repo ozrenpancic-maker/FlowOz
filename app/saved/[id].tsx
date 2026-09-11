@@ -5,6 +5,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 
 import type { SavedMeasurement } from '../../domain/measurement';
 import { classifyAccuracy } from '../../domain/gps';
+import { median } from '../../domain/linalg';
 import { formatNumber } from '../../domain/units';
 import { classifyStability } from '../../domain/sensor-snapshot';
 import { buildSiteCameraReference } from '../../domain/site-reference';
@@ -342,7 +343,7 @@ export default function MeasurementDetailScreen() {
         />
       ) : null}
 
-      {measurement.sensorSnapshot ? (
+      {measurement.sensorSnapshot || analysis || measurement.cameraLevelEvidence ? (
         <>
           <SectionTitle>{t('saved.technicalData')}</SectionTitle>
           <Button
@@ -352,6 +353,8 @@ export default function MeasurementDetailScreen() {
           />
           {showTechnical ? (
             <Card>
+              {measurement.sensorSnapshot ? (
+                <>
               <ValueRow label={t('saved.technical.device')} value={measurement.sensorSnapshot.device.model ?? t('common.withheld')} withheld={!measurement.sensorSnapshot.device.model} />
               <ValueRow label={t('saved.technical.androidVersion')} value={measurement.sensorSnapshot.device.androidVersion ?? t('common.withheld')} withheld={!measurement.sensorSnapshot.device.androidVersion} />
               <ValueRow label={t('saved.technical.appVersion')} value={measurement.sensorSnapshot.device.appVersion} />
@@ -404,6 +407,92 @@ export default function MeasurementDetailScreen() {
                   <ValueRow label={t('saved.technical.contrast')} value={gradeContrast(measurement.sensorSnapshot.imageQuality)} />
                   <ValueRow label={t('saved.technical.sharpness')} value={gradeSharpness(measurement.sensorSnapshot.imageQuality)} />
                   <ValueRow label={t('saved.technical.glare')} value={gradeGlare(measurement.sensorSnapshot.imageQuality)} />
+                </>
+              ) : null}
+                </>
+              ) : null}
+
+              {analysis ? (
+                <>
+                  {measurement.sensorSnapshot?.camera.timingSource ? (
+                    <ValueRow
+                      label={t('saved.technical.timingSource')}
+                      value={measurement.sensorSnapshot.camera.timingSource}
+                    />
+                  ) : null}
+                  <ValueRow label={t('saved.technical.deltaT')} value={formatNumber(analysis.frameDeltaS, 4)} unit="s" />
+                  <ValueRow
+                    label={t('saved.technical.streamwiseVelocity')}
+                    value={formatNumber(measurement.surfaceVelocity ?? null, 4)}
+                    unit="m/s"
+                  />
+                  {analysis.lateralVelocity !== undefined ? (
+                    <ValueRow
+                      label={t('saved.technical.lateralVelocity')}
+                      value={formatNumber(analysis.lateralVelocity, 4)}
+                      unit="m/s"
+                    />
+                  ) : null}
+                  {analysis.speedMagnitude !== undefined ? (
+                    <ValueRow
+                      label={t('saved.technical.speedMagnitude')}
+                      value={formatNumber(analysis.speedMagnitude, 4)}
+                      unit="m/s"
+                    />
+                  ) : null}
+                  <ValueRow
+                    label={t('saved.technical.crossFlowRatio')}
+                    value={formatNumber(analysis.quality.crossFlowRatio, 3)}
+                  />
+                  <ValueRow
+                    label={t('saved.technical.ssivSnr')}
+                    value={formatNumber(median(analysis.vectors.filter((v) => v.accepted).map((v) => v.snr)), 2)}
+                  />
+                  <ValueRow label={t('saved.technical.algorithmVersion')} value={analysis.algorithmVersion} />
+                </>
+              ) : null}
+
+              {measurement.cameraLevelEvidence ? (
+                <>
+                  <SectionTitle>{t('saved.technical.cameraLevelTitle')}</SectionTitle>
+                  {measurement.cameraLevelEvidence.sourceImageWidth !== undefined &&
+                  measurement.cameraLevelEvidence.sourceImageHeight !== undefined ? (
+                    <ValueRow
+                      label={t('saved.technical.sourceImageSize')}
+                      value={`${measurement.cameraLevelEvidence.sourceImageWidth}×${measurement.cameraLevelEvidence.sourceImageHeight}`}
+                    />
+                  ) : null}
+                  <ValueRow
+                    label={t('saved.technical.ellipseResidual')}
+                    value={formatNumber(measurement.cameraLevelEvidence.fit.residual, 3)}
+                    unit="px"
+                  />
+                  <ValueRow
+                    label={t('saved.technical.ellipseInliers')}
+                    value={`${measurement.cameraLevelEvidence.fit.inlierCount} / ${measurement.cameraLevelEvidence.fit.rejectedCount}`}
+                  />
+                  <ValueRow
+                    label={t('saved.technical.axisRatio')}
+                    value={formatNumber(measurement.cameraLevelEvidence.fit.axisRatio, 3)}
+                  />
+                  {measurement.cameraLevelEvidence.pitchDeg !== undefined ? (
+                    <ValueRow
+                      label={t('video.cameraStability.pitch')}
+                      value={formatNumber(measurement.cameraLevelEvidence.pitchDeg, 1)}
+                      unit="°"
+                    />
+                  ) : null}
+                  {measurement.cameraLevelEvidence.rollDeg !== undefined ? (
+                    <ValueRow
+                      label={t('video.cameraStability.roll')}
+                      value={formatNumber(measurement.cameraLevelEvidence.rollDeg, 1)}
+                      unit="°"
+                    />
+                  ) : null}
+                  <ValueRow
+                    label={t('saved.technical.algorithmVersion')}
+                    value={measurement.cameraLevelEvidence.algorithmVersion}
+                  />
                 </>
               ) : null}
             </Card>

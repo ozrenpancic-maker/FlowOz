@@ -2,11 +2,11 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 
-import { activeAlpha, deriveAlpha } from '../domain/calibration';
+import { activeAlpha, calibratedDepthRange, deriveAlpha } from '../domain/calibration';
 import { computeSection } from '../domain/geometry';
 import { createId } from '../domain/ids';
 import type { Site } from '../domain/types';
-import { formatNumber, parseNumericInput, toMetres } from '../domain/units';
+import { formatNumber, fromMetres, parseNumericInput, toMetres } from '../domain/units';
 import { useSettings } from '../state/settings-context';
 import {
   Badge,
@@ -69,6 +69,7 @@ export default function CalibrationScreen() {
 
   const site = sites.find((entry) => entry.id === siteId) ?? null;
   const alpha = site ? activeAlpha(site.calibrationPoints) : null;
+  const calibratedRange = site ? calibratedDepthRange(site.calibrationPoints) : null;
 
   const addPoint = async () => {
     if (!site || busy) return;
@@ -168,6 +169,14 @@ export default function CalibrationScreen() {
             <Muted>
               {t('calibration.points')}: {alpha.pointCount} / {site.calibrationPoints.length}
             </Muted>
+            {calibratedRange ? (
+              <ValueRow
+                label={t('calibration.range')}
+                value={`${formatNumber(fromMetres(calibratedRange.minDepth, site.draft.unit), 3)} – ${formatNumber(fromMetres(calibratedRange.maxDepth, site.draft.unit), 3)}`}
+                unit={site.draft.unit}
+                detail={t('calibration.rangeHint')}
+              />
+            ) : null}
           </Card>
 
           <SectionTitle>{t('calibration.addPoint')}</SectionTitle>

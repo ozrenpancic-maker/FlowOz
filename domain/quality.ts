@@ -74,8 +74,12 @@ export function gradeGeometry(input: GeometryQualityInput): QualityComponent {
 export interface LevelQualityInput {
   provenance: Provenance;
   depthValid: boolean;
-  /** Camera-assisted level residual, when that method was used. */
-  cameraAssisted?: { residualPx: number; pointCount: number };
+  /**
+   * Present whenever the camera-assisted method was used. `evidence` is
+   * absent (never a fabricated NaN/0 pair) when the draft carries no actual
+   * ellipse fit — e.g. a depth carried over from an older record.
+   */
+  cameraAssisted?: { evidence?: { residualPx: number; pointCount: number } };
 }
 
 export function gradeLevel(input: LevelQualityInput): QualityComponent {
@@ -85,8 +89,8 @@ export function gradeLevel(input: LevelQualityInput): QualityComponent {
   if (input.cameraAssisted) {
     // A small residual only proves the conic fits the clicked points. It does
     // not prove perspective accuracy, so camera-assisted level is capped at B.
-    const { residualPx, pointCount } = input.cameraAssisted;
-    if (pointCount < 8 || !Number.isFinite(residualPx)) {
+    const evidence = input.cameraAssisted.evidence;
+    if (!evidence || evidence.pointCount < 8 || !Number.isFinite(evidence.residualPx)) {
       return { grade: 'C', reasonKey: 'quality.level.cameraWeakFit' };
     }
     return { grade: 'B', reasonKey: 'quality.level.cameraNotMetrologicallyValidated' };

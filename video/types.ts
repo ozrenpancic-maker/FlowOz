@@ -1,4 +1,4 @@
-import type { KnownRoiDimensions, WaterRoi } from '../domain/types';
+import type { FlowDirection, KnownRoiDimensions, WaterRoi } from '../domain/types';
 import type { ImageQualityMetrics } from './image-quality';
 
 /**
@@ -214,6 +214,8 @@ export interface SsivAnalysisInput {
   clip: DecodedClip;
   roi: WaterRoi;
   knownDimensions: KnownRoiDimensions;
+  /** Defaults to FORWARD when omitted. */
+  flowDirection?: FlowDirection;
 }
 
 export interface SsivQualitySummary {
@@ -260,6 +262,15 @@ export interface SsivAnalysis {
   instantaneousVelocity?: number;
   /** Median of the accepted ensemble node velocities [m/s], when any. */
   ensembleVelocity?: number;
+  /**
+   * Signed median cross-stream velocity [m/s], diagnostic only — from the
+   * same accepted vector/ensemble set that fed surfaceVelocity. Never used to
+   * compute discharge; see SsivQualitySummary.crossFlowRatio.
+   */
+  lateralVelocity?: number;
+  /** Median total surface speed (√(streamwise²+lateral²)) [m/s], diagnostic
+   * only — never used to compute discharge. */
+  speedMagnitude?: number;
   /** Robust spread of the accepted per-pair velocities (MAD) [m/s]. Diagnostic
    * only — this is not a validated uncertainty. */
   velocitySpreadMs: number;

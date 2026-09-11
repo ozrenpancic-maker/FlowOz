@@ -2,15 +2,21 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import type { NormalizedPoint, WaterRoi } from '../domain/types';
+import { normalizedDisplayToSource, normalizedSourceToDisplay, type FitMode } from '../domain/coordinate-transform';
 import { ROI_POINT_ORDER, type RoiPointKey } from '../video/roi';
 import { colors, radius, spacing, typography } from './theme';
 
 /**
  * Four-point ROI editor.
  *
- * Points are numbered 1–4 and stored in normalised (0–1) coordinates so the ROI
- * survives any preview size. The operator selects a point and taps the frame to
- * move it; flow runs from edge 1–2 towards edge 4–3.
+ * Points are numbered 1–4 and stored normalised (0–1) to the *source*
+ * video's own frame, not to this preview box — see domain/coordinate-
+ * transform.ts for why those are not the same thing whenever `contentFit`
+ * crops or letterboxes the preview relative to the source's own aspect
+ * ratio. When `sourceSize` is supplied, every tap and every drawn handle
+ * goes through that transform; without it, points are stored relative to
+ * the preview box itself, which is only correct if the caller has already
+ * forced the box to the source's exact aspect ratio.
  */
 export function RoiEditor({
   roi,
@@ -18,6 +24,8 @@ export function RoiEditor({
   children,
   aspectRatio = 16 / 9,
   pointLabel,
+  sourceSize,
+  fit = 'cover',
 }: {
   roi: WaterRoi;
   onChange: (next: WaterRoi) => void;
@@ -25,6 +33,10 @@ export function RoiEditor({
   children?: React.ReactNode;
   aspectRatio?: number;
   pointLabel: string;
+  /** Real pixel size of the video behind the preview. */
+  sourceSize?: { width: number; height: number };
+  /** How `children`'s preview fits the box — must match its own contentFit. */
+  fit?: FitMode;
 }) {
   const [active, setActive] = useState<RoiPointKey>('topLeft');
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -34,12 +46,39 @@ export function RoiEditor({
     setSize({ width, height });
   };
 
+  const toSource = (point: NormalizedPoint): NormalizedPoint | null => {
+    if (!sourceSize) return point;
+    if (size.width <= 0 || size.height <= 0) return null;
+    return normalizedDisplayToSource(point, {
+      sourceWidth: sourceSize.width,
+      sourceHeight: sourceSize.height,
+      displayWidth: size.width,
+      displayHeight: size.height,
+      fit,
+    });
+  };
+
+  const toDisplay = (point: NormalizedPoint): NormalizedPoint => {
+    if (!sourceSize || size.width <= 0 || size.height <= 0) return point;
+    return (
+      normalizedSourceToDisplay(point, {
+        sourceWidth: sourceSize.width,
+        sourceHeight: sourceSize.height,
+        displayWidth: size.width,
+        displayHeight: size.height,
+        fit,
+      }) ?? point
+    );
+  };
+
   const movePoint = (x: number, y: number) => {
     if (size.width <= 0 || size.height <= 0) return;
-    const next: NormalizedPoint = {
-      x: clamp01(x / size.width),
-      y: clamp01(y / size.height),
-    };
+    const displayPoint = { x: x / size.width, y: y / size.height };
+    const sourcePoint = toSource(displayPoint);
+    // A tap outside the visible content (the letterbox bar in "contain") has
+    // no corresponding source pixel — ignored rather than guessed.
+    if (!sourcePoint) return;
+    const next: NormalizedPoint = { x: clamp01(sourcePoint.x), y: clamp01(sourcePoint.y) };
     onChange({ ...roi, [active]: next });
   };
 
@@ -53,7 +92,7 @@ export function RoiEditor({
         >
           <View style={StyleSheet.absoluteFill}>
             {ROI_POINT_ORDER.map((key, index) => {
-              const point = roi[key];
+              const point = toDisplay(roi[key]);
               const isActive = key === active;
               return (
                 <View
@@ -73,7 +112,7 @@ export function RoiEditor({
                 </View>
               );
             })}
-            {edges(roi, size).map((edge) => (
+            {edges(roi, size, toDisplay).map((edge) => (
               <View key={edge.key} style={[styles.edge, edge.style]} />
             ))}
           </View>
@@ -109,8 +148,12 @@ function clamp01(value: number): number {
 }
 
 /** Straight segments between consecutive ROI points, drawn as rotated views. */
-function edges(roi: WaterRoi, size: { width: number; height: number }) {
-  const points = ROI_POINT_ORDER.map((key) => roi[key]);
+function edges(
+  roi: WaterRoi,
+  size: { width: number; height: number },
+  toDisplay: (point: NormalizedPoint) => NormalizedPoint
+) {
+  const points = ROI_POINT_ORDER.map((key) => toDisplay(roi[key]));
   return points.map((point, index) => {
     const next = points[(index + 1) % points.length] as NormalizedPoint;
     const x1 = point.x * size.width;

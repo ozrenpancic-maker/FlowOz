@@ -5,6 +5,9 @@ import { COLLECTIONS, escapeCellFixtureGuard, indexRow, isSavedMeasurement, isSi
 import { DEFAULT_SETTINGS, mergeSettings } from '../../storage/settings';
 import { makeMeasurement, makeSite } from './fixtures';
 import { buildValidationRecord } from '../../domain/validation-record';
+import type { SavedMeasurement } from '../../domain/measurement';
+import { buildReportModel } from '../../reports/report-model';
+import { measurementRow, toCsv } from '../../reports/csv';
 
 function freshRepository() {
   const store = new MemoryDocumentStore(SCHEMA_VERSION);
@@ -154,6 +157,122 @@ describe('measurements', () => {
     expect(reopened?.id).toBe('m-restart');
     expect(reopened?.raw).toEqual(measurement.raw);
     expect(reopened?.flowM3s).toBeCloseTo(measurement.flowM3s as number, 12);
+  });
+
+  it('loads a genuinely old record — written before sensorSnapshot and cameraLevelEvidence existed — without failure', async () => {
+    // A hand-built payload matching the pre-Phase-2 shape: no sensorSnapshot,
+    // no cameraLevelEvidence, no flowDirection, no lateral/speed diagnostics.
+    // This is what a real device's pre-upgrade database row looks like —
+    // not a fixture that merely omits optional constructor arguments.
+    const { repository, store } = freshRepository();
+    await repository.initialise();
+    const oldRecord = {
+      id: 'm-old',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      geometry: 'circular',
+      dimensions: { kind: 'circular', diameter: 0.4 },
+      depth: 0.15,
+      unit: 'mm',
+      levelMethod: 'manual',
+      method: 'manning',
+      roughness: 0.013,
+      slope: 0.005,
+      velocity: 1.0,
+      area: 0.02,
+      wettedPerimeter: 0.5,
+      hydraulicRadius: 0.04,
+      flowM3s: 0.02,
+      alpha: 0.85,
+      measurementVersion: 1,
+      algorithmVersion: 'manning-1.0.0',
+      processingStatus: 'PROCESSED',
+      confidence: 'B',
+      dataQuality: {
+        geometry: { grade: 'A', reasonKey: 'quality.geometry.fromSite' },
+        level: { grade: 'A', reasonKey: 'quality.level.manualEntry' },
+        velocity: { grade: 'A', reasonKey: 'quality.velocity.manning' },
+        overall: { grade: 'A', reasonKey: 'quality.velocity.manning' },
+        uncertainty: 'UNCERTAINTY NOT YET CALCULATED',
+      },
+      provenance: { geometry: 'SITE', depth: 'MEASURED', velocity: 'CALCULATED', alpha: 'ASSUMED', flow: 'CALCULATED' },
+      raw: { draft: {}, plausibility: { advisories: [], blocked: false } },
+    };
+    await store.put({
+      collection: COLLECTIONS.measurements,
+      id: 'm-old',
+      schemaVersion: SCHEMA_VERSION,
+      createdAt: oldRecord.createdAt,
+      updatedAt: oldRecord.createdAt,
+      payload: JSON.stringify(oldRecord),
+    });
+
+    const reopened = await repository.getMeasurement('m-old');
+    expect(reopened).not.toBeNull();
+    expect(reopened?.id).toBe('m-old');
+    expect(reopened?.sensorSnapshot).toBeUndefined();
+    expect(reopened?.cameraLevelEvidence).toBeUndefined();
+    expect(reopened?.flowDirection).toBeUndefined();
+    // And every downstream consumer that reads these optional fields must
+    // still work rather than throw — never silently erase the old record.
+    expect(() => buildReportModel(reopened as SavedMeasurement, DEFAULT_SETTINGS)).not.toThrow();
+    expect(() => toCsv([reopened as SavedMeasurement], 'international')).not.toThrow();
+    const row = measurementRow(reopened as SavedMeasurement);
+    expect(row.camera_lens).toBe('');
+    expect(row.timing_source).toBe('');
+    expect(row.streamwise_velocity_m_s).toBeNull();
+  });
+
+  it('loads an old camera-assisted-level record that predates cameraLevelEvidence, using the pre-consolidation field names', async () => {
+    const { repository, store } = freshRepository();
+    await repository.initialise();
+    const oldRecord = {
+      id: 'm-old-level',
+      createdAt: '2025-02-01T00:00:00.000Z',
+      geometry: 'circular',
+      dimensions: { kind: 'circular', diameter: 0.4 },
+      depth: 0.2,
+      unit: 'mm',
+      levelMethod: 'camera-assisted',
+      method: 'manning',
+      // Pre-consolidation (Phase before task #32): three separate fields
+      // instead of one cameraLevelEvidence structure.
+      cameraLevelRimPoints: [{ x: 1, y: 1 }],
+      cameraLevelWaterlinePoints: [{ x: 1, y: 2 }],
+      cameraLevelFit: { residual: 0.1, inlierCount: 10 },
+      roughness: 0.013,
+      slope: 0.005,
+      velocity: 1.0,
+      flowM3s: 0.02,
+      alpha: 0.85,
+      measurementVersion: 1,
+      algorithmVersion: 'manning-1.0.0',
+      processingStatus: 'PROCESSED',
+      confidence: 'B',
+      dataQuality: {
+        geometry: { grade: 'A', reasonKey: 'quality.geometry.fromSite' },
+        level: { grade: 'C', reasonKey: 'quality.level.cameraWeakFit' },
+        velocity: { grade: 'A', reasonKey: 'quality.velocity.manning' },
+        overall: { grade: 'C', reasonKey: 'quality.level.cameraWeakFit' },
+        uncertainty: 'UNCERTAINTY NOT YET CALCULATED',
+      },
+      provenance: { geometry: 'SITE', depth: 'MEASURED', velocity: 'CALCULATED', alpha: 'ASSUMED', flow: 'CALCULATED' },
+      raw: { draft: {}, plausibility: { advisories: [], blocked: false } },
+    };
+    await store.put({
+      collection: COLLECTIONS.measurements,
+      id: 'm-old-level',
+      schemaVersion: SCHEMA_VERSION,
+      createdAt: oldRecord.createdAt,
+      updatedAt: oldRecord.createdAt,
+      payload: JSON.stringify(oldRecord),
+    });
+
+    const reopened = await repository.getMeasurement('m-old-level');
+    expect(reopened).not.toBeNull();
+    // The new, canonical field is simply absent — never guessed from the old
+    // scattered fields, and never a reason to reject the record.
+    expect(reopened?.cameraLevelEvidence).toBeUndefined();
+    expect(() => buildReportModel(reopened as SavedMeasurement, DEFAULT_SETTINGS)).not.toThrow();
   });
 
   it('serialises concurrent writes instead of interleaving them', async () => {

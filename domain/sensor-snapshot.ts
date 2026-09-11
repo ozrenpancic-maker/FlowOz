@@ -19,6 +19,17 @@ import type { ImageQualityMetrics } from '../video/image-quality';
 export type Tri = 'YES' | 'NO' | 'UNKNOWN';
 export type QualityBand = 'GOOD' | 'ACCEPTABLE' | 'POOR';
 
+/**
+ * Where a video's frame timing actually came from. `WEBVIEW_MEDIA_TIME` is
+ * the only source this build has: the WebView decoder reads the HTML5
+ * `<video>` element's own `currentTime` after each seek, which is a real
+ * measured value but not a full native per-frame presentation-timestamp
+ * (PTS) track — see CAMERA_CAPABILITY_MATRIX. A future native decoder could
+ * add a genuine PTS-based source; this type is left open for that, but this
+ * build never claims one it doesn't have.
+ */
+export type TimingSource = 'WEBVIEW_MEDIA_TIME';
+
 export interface DeviceInfo {
   manufacturer?: string;
   model?: string;
@@ -48,6 +59,19 @@ export interface CameraMetadata {
   nominalFps?: number;
   /** From the decoder's own measured frame-pair spacing (1 / median actual Δt). */
   actualFps?: number;
+  /** The decoder's measured spacing between a pair's two frames [s] — the
+   * same underlying measurement as actualFps, expressed directly in time
+   * rather than converted to a rate. */
+  observedFrameIntervalS?: number;
+  /** The Δt this measurement's velocity was actually divided by [s]. In this
+   * build it is the same measured value as observedFrameIntervalS (there is
+   * no separate smoothing/estimation step) — stored as its own field so a
+   * future pipeline that combines several differently-sourced intervals can
+   * report them distinctly without a schema change. */
+  actualProcessingDeltaT?: number;
+  /** Explicit source of the two fields above. Never populated for a value
+   * this build did not actually measure. */
+  timingSource?: TimingSource;
   /** Normalised 0–1, the value the app itself requested — expo-camera does not
    * expose a device-specific optical multiplier ("2x") to convert this to. */
   zoom?: number;
@@ -156,7 +180,12 @@ export interface DepthCapabilitySnapshot {
  * table whenever expo-camera/expo-video are upgraded, since a newer SDK
  * could genuinely add one of these.
  */
-export type CameraCapabilityStatus = 'YES' | 'NO' | 'REQUESTED_ONLY';
+export type CameraCapabilityStatus =
+  | 'YES'
+  | 'NO'
+  | 'REQUESTED_ONLY'
+  | 'NOT AVAILABLE THROUGH CURRENT STACK'
+  | 'FUTURE NATIVE IMPLEMENTATION';
 
 export interface CameraCapabilityRow {
   property: string;
@@ -177,18 +206,42 @@ export const CAMERA_CAPABILITY_MATRIX: readonly CameraCapabilityRow[] = [
     note:
       'The WebView decoder reads video.currentTime after each seek, giving a real measured Δt between the two decoded frames — but not a full per-frame presentation-timestamp track. See Phase 8.',
   },
-  { property: 'Focal length', status: 'NO', note: 'Not exposed by CameraViewProps on any platform.' },
-  { property: 'ISO', status: 'NO', note: 'Not exposed by CameraViewProps on any platform (WebCameraSettings is web-only and unused here).' },
-  { property: 'Exposure time', status: 'NO', note: 'Not exposed by CameraViewProps on any platform.' },
-  { property: 'Focus distance', status: 'NO', note: 'Not exposed by CameraViewProps on any platform.' },
+  {
+    property: 'Focal length',
+    status: 'NOT AVAILABLE THROUGH CURRENT STACK',
+    note: 'Not exposed by CameraViewProps on any platform.',
+  },
+  {
+    property: 'ISO',
+    status: 'NOT AVAILABLE THROUGH CURRENT STACK',
+    note: 'Not exposed by CameraViewProps on any platform (WebCameraSettings is web-only and unused here).',
+  },
+  {
+    property: 'Exposure time',
+    status: 'NOT AVAILABLE THROUGH CURRENT STACK',
+    note: 'Not exposed by CameraViewProps on any platform.',
+  },
+  {
+    property: 'Focus distance',
+    status: 'NOT AVAILABLE THROUGH CURRENT STACK',
+    note: 'Not exposed by CameraViewProps on any platform.',
+  },
   {
     property: 'Camera/lens ID',
-    status: 'NO',
+    status: 'NOT AVAILABLE THROUGH CURRENT STACK',
     note: 'selectedLens/getAvailableLenses/onAvailableLensesChanged are documented @platform ios only.',
   },
   { property: 'Zoom ratio', status: 'YES', note: 'CameraViewProps.zoom, normalised 0–1, cross-platform — but the value the app itself set, not a device-reported optical multiplier.' },
-  { property: 'Camera intrinsics (fx/fy/cx/cy)', status: 'NO', note: 'No intrinsics API anywhere in expo-camera.' },
-  { property: 'Distortion coefficients', status: 'NO', note: 'No distortion API anywhere in expo-camera.' },
+  {
+    property: 'Camera intrinsics (fx/fy/cx/cy)',
+    status: 'FUTURE NATIVE IMPLEMENTATION',
+    note: 'No intrinsics API anywhere in expo-camera — would require a native Camera2/AVFoundation layer.',
+  },
+  {
+    property: 'Distortion coefficients',
+    status: 'FUTURE NATIVE IMPLEMENTATION',
+    note: 'No distortion API anywhere in expo-camera — would require a native Camera2/AVFoundation layer.',
+  },
 ] as const;
 
 export interface SensorSnapshot {

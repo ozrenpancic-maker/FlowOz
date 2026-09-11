@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
-import type { KnownRoiDimensions, WaterRoi } from '../domain/types';
+import type { FlowDirection, KnownRoiDimensions, WaterRoi } from '../domain/types';
 import {
   buildClip,
   collect,
@@ -34,6 +34,8 @@ export interface SsivRequest {
   durationS: number;
   roi: WaterRoi;
   knownDimensions: KnownRoiDimensions;
+  /** Defaults to FORWARD when omitted. */
+  flowDirection?: FlowDirection;
 }
 
 export type SsivProgress = 'idle' | 'decoding' | 'analysing';
@@ -127,6 +129,7 @@ export function SsivProcessor({
       clip: clip.clip,
       roi: request.roi,
       knownDimensions: request.knownDimensions,
+      flowDirection: request.flowDirection,
     });
 
     settle(analysis.ok ? { ok: true, analysis: analysis.value } : { ok: false, failure: analysis.error });

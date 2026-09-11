@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -6,12 +6,16 @@ import { Accelerometer } from 'expo-sensors';
 
 import { estimateDepthFromRim, fitEllipse, MAX_RIM_POINTS, MIN_RIM_POINTS, type Point2D } from '../domain/ellipse';
 import { formatNumber, fromMetres } from '../domain/units';
+import { displayToSource, sourceToDisplay, type FrameGeometry } from '../domain/coordinate-transform';
 import { summarizeMotion, type SensorSnapshot } from '../domain/sensor-snapshot';
+import { ALGORITHM_VERSION, type CameraLevelEvidence } from '../domain/types';
+import { suggestInitialWaterLine, toEndpoints, type WaterLine } from '../domain/water-line';
 import { captureDeviceInfo } from '../sensors/device-info';
 import { persistMedia } from '../storage/media-storage';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
 import { Badge, Button, Card, ErrorBlock, Muted, Note, Screen, SectionTitle, ValueRow } from '../ui/components';
+import { WaterLineEditor } from '../ui/WaterLineEditor';
 import { colors, radius, spacing, typography } from '../ui/theme';
 
 /** No digital zoom for a metric measurement — see app/video.tsx's ZOOM. */
@@ -42,13 +46,56 @@ export default function LevelCameraScreen() {
 
   const [mode, setMode] = useState<Marking>('rim');
   const [rimPoints, setRimPoints] = useState<Point2D[]>([]);
-  const [waterline, setWaterline] = useState<Point2D[]>([]);
+  const [waterLine, setWaterLine] = useState<WaterLine | null>(null);
+  const [initialWaterLine, setInitialWaterLine] = useState<WaterLine | null>(null);
+  const [waterLineHistory, setWaterLineHistory] = useState<WaterLine[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [photoSize, setPhotoSize] = useState<{ width: number; height: number } | null>(null);
   const [gravity, setGravity] = useState<{ x: number; y: number; z: number } | null>(null);
-  const [estimate, setEstimate] = useState<ReturnType<typeof estimateDepthFromRim> | null>(null);
 
   const diameter = draft.dimensions.kind === 'circular' ? draft.dimensions.diameter : 0;
+
+  // The heavy robust ellipse fit only needs to re-run when the rim points
+  // themselves change — never on every frame of a waterline drag.
+  const ellipseFit = useMemo(
+    () => (rimPoints.length >= MIN_RIM_POINTS ? fitEllipse(rimPoints) : null),
+    [rimPoints]
+  );
+
+  // The waterline is initialised once, automatically, right after the rim fit
+  // first succeeds — gravity only suggests its starting angle; the operator's
+  // own drag/rotate always wins from then on (see domain/water-line.ts).
+  useEffect(() => {
+    if (mode === 'waterline' && ellipseFit?.ok && !waterLine) {
+      const initial = suggestInitialWaterLine(ellipseFit.value, gravity ?? undefined);
+      setWaterLine(initial);
+      setInitialWaterLine(initial);
+      setWaterLineHistory([]);
+    }
+  }, [mode, ellipseFit, waterLine, gravity]);
+
+  // Cheap, closed-form — safe to recompute on every render, including every
+  // frame of a drag, so the depth reading is genuinely live.
+  const liveEstimate =
+    ellipseFit?.ok && waterLine
+      ? estimateDepthFromRim(ellipseFit.value, toEndpoints(waterLine), diameter, gravity ?? undefined)
+      : null;
+
+  const pushWaterLineUndo = () => {
+    if (waterLine) setWaterLineHistory((current) => [...current, waterLine]);
+  };
+  const undoWaterLine = () => {
+    setWaterLineHistory((current) => {
+      if (current.length === 0) return current;
+      setWaterLine(current[current.length - 1] as WaterLine);
+      return current.slice(0, -1);
+    });
+  };
+  const resetWaterLine = () => {
+    if (!initialWaterLine) return;
+    pushWaterLineUndo();
+    setWaterLine(initialWaterLine);
+  };
 
   // The gravity vector fixes which side of the water line is the invert.
   useEffect(() => {
@@ -85,6 +132,26 @@ export default function LevelCameraScreen() {
   const photoAspectRatio =
     photoSize && photoSize.width > 0 && photoSize.height > 0 ? photoSize.width / photoSize.height : 3 / 4;
 
+  // The real transform from a tap on this preview to a pixel of the actual
+  // stored photo (see domain/coordinate-transform.ts) — null until both the
+  // photo's own dimensions and the on-screen box's layout are known, in
+  // which case points fall back to raw display pixels rather than blocking
+  // capture.
+  const frameGeometry: FrameGeometry | null =
+    photoSize && photoSize.width > 0 && photoSize.height > 0 && size.width > 0 && size.height > 0
+      ? {
+          sourceWidth: photoSize.width,
+          sourceHeight: photoSize.height,
+          displayWidth: size.width,
+          displayHeight: size.height,
+          fit: 'cover',
+        }
+      : null;
+  const toSourcePoint = (point: Point2D): Point2D =>
+    (frameGeometry && displayToSource(point, frameGeometry)) || point;
+  const toDisplayPoint = (point: Point2D): Point2D =>
+    (frameGeometry && sourceToDisplay(point, frameGeometry)) || point;
+
   const openCamera = async () => {
     setCaptureError(null);
     if (!permission?.granted) {
@@ -113,8 +180,9 @@ export default function LevelCameraScreen() {
       }
       setPhotoUri(persisted.media.uri);
       setRimPoints([]);
-      setWaterline([]);
-      setEstimate(null);
+      setWaterLine(null);
+      setInitialWaterLine(null);
+      setWaterLineHistory([]);
       patchDraft({
         photoUri: persisted.media.uri,
         ...(gravity ? { gravity } : {}),
@@ -126,44 +194,16 @@ export default function LevelCameraScreen() {
   };
 
   const addPoint = (x: number, y: number) => {
-    const point = { x, y };
-    if (mode === 'rim') {
-      setRimPoints((current) => (current.length >= MAX_RIM_POINTS ? current : [...current, point]));
-    } else {
-      setWaterline((current) => (current.length >= 2 ? [point] : [...current, point]));
-    }
-    setEstimate(null);
-  };
-
-  const runFit = () => {
-    const fit = fitEllipse(rimPoints);
-    if (!fit.ok) {
-      setEstimate({ ok: false, error: fit.error });
-      return;
-    }
-    if (waterline.length !== 2) {
-      setEstimate({
-        ok: false,
-        error: {
-          code: 'WATERLINE_OUTSIDE_RIM',
-          messageKey: 'level.camera.waterlinePoints',
-          detail: `${waterline.length}/2`,
-        },
-      });
-      return;
-    }
-    setEstimate(
-      estimateDepthFromRim(
-        fit.value,
-        [waterline[0] as Point2D, waterline[1] as Point2D],
-        diameter,
-        gravity ?? undefined
-      )
-    );
+    // Stored in the photo's own source-pixel frame, not the preview box's —
+    // see domain/coordinate-transform.ts. Rim marking only — the waterline is
+    // now placed by dragging (see WaterLineEditor), not by tapping.
+    const point = toSourcePoint({ x, y });
+    setRimPoints((current) => (current.length >= MAX_RIM_POINTS ? current : [...current, point]));
   };
 
   const useDepth = () => {
-    if (!estimate?.ok) return;
+    const estimate = liveEstimate;
+    if (!estimate?.ok || !waterLine) return;
     const motion = summarizeMotion({
       accelerometerAvailable: gravity !== null,
       gyroscopeAvailable: false,
@@ -185,13 +225,28 @@ export default function LevelCameraScreen() {
       },
       motion,
     };
+    const cameraLevelEvidence: CameraLevelEvidence = {
+      ...(photoSize ? { sourceImageWidth: photoSize.width, sourceImageHeight: photoSize.height } : {}),
+      rimPoints,
+      waterlinePoints: toEndpoints(waterLine),
+      waterLineModel: {
+        midpointX: waterLine.midpoint.x,
+        midpointY: waterLine.midpoint.y,
+        angleRad: waterLine.angleRad,
+        halfLengthPx: waterLine.halfLengthPx,
+      },
+      fit: estimate.value.fit,
+      ...(gravity ? { gravityVector: gravity } : {}),
+      ...(motion.pitchDeg !== undefined ? { pitchDeg: motion.pitchDeg } : {}),
+      ...(motion.rollDeg !== undefined ? { rollDeg: motion.rollDeg } : {}),
+      imageOrientation: 'portrait',
+      algorithmVersion: ALGORITHM_VERSION,
+    };
     patchDraft({
       depth: estimate.value.depth,
       levelMethod: 'camera-assisted',
       ...(gravity ? { gravity } : {}),
-      cameraLevelRimPoints: rimPoints,
-      cameraLevelWaterlinePoints: waterline,
-      cameraLevelFit: estimate.value.fit,
+      cameraLevelEvidence,
       sensorSnapshot,
     });
     router.back();
@@ -274,28 +329,69 @@ export default function LevelCameraScreen() {
         </Card>
       ) : (
         <>
-          <View style={[styles.frame, { aspectRatio: photoAspectRatio }]} onLayout={onLayout}>
-            <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={(event) => addPoint(event.nativeEvent.locationX, event.nativeEvent.locationY)}
-            >
-              <View style={StyleSheet.absoluteFill}>
-                {rimPoints.map((point, index) => (
-                  <View key={`rim-${index}`} style={[styles.marker, { left: point.x - 6, top: point.y - 6 }]} />
-                ))}
-                {waterline.map((point, index) => (
-                  <View
-                    key={`water-${index}`}
-                    style={[styles.marker, styles.markerWater, { left: point.x - 6, top: point.y - 6 }]}
-                  />
-                ))}
+          {mode === 'rim' ? (
+            <>
+              <View style={[styles.frame, { aspectRatio: photoAspectRatio }]} onLayout={onLayout}>
+                <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={(event) => addPoint(event.nativeEvent.locationX, event.nativeEvent.locationY)}
+                >
+                  <View style={StyleSheet.absoluteFill}>
+                    {rimPoints.map((point, index) => {
+                      const display = toDisplayPoint(point);
+                      return (
+                        <View
+                          key={`rim-${index}`}
+                          style={[styles.marker, { left: display.x - 6, top: display.y - 6 }]}
+                        />
+                      );
+                    })}
+                  </View>
+                </Pressable>
               </View>
-            </Pressable>
-          </View>
-          <Muted>
-            {size.width > 0 ? `${Math.round(size.width)}×${Math.round(size.height)} px` : ''}
-          </Muted>
+              <Muted>
+                {size.width > 0 ? `${Math.round(size.width)}×${Math.round(size.height)} px` : ''}
+              </Muted>
+            </>
+          ) : ellipseFit?.ok && waterLine && photoSize ? (
+            <>
+              <WaterLineEditor
+                photoUri={photoUri}
+                sourceSize={photoSize}
+                waterLine={waterLine}
+                onChange={setWaterLine}
+                onGestureStart={pushWaterLineUndo}
+                aspectRatio={photoAspectRatio}
+                rimPoints={rimPoints}
+              />
+              <Muted>{t('level.camera.waterlineInstructions')}</Muted>
+              <View style={styles.modeRow}>
+                <Button
+                  label={t('level.camera.undo')}
+                  variant="secondary"
+                  onPress={undoWaterLine}
+                  disabled={waterLineHistory.length === 0}
+                />
+                <Button
+                  label={t('level.camera.resetLine')}
+                  variant="secondary"
+                  onPress={resetWaterLine}
+                  disabled={!initialWaterLine}
+                />
+              </View>
+            </>
+          ) : (
+            <ErrorBlock
+              title={
+                ellipseFit && !ellipseFit.ok
+                  ? t(ellipseFit.error.messageKey)
+                  : t('level.camera.needMoreRimPoints')
+              }
+              detail={ellipseFit && !ellipseFit.ok ? ellipseFit.error.detail : undefined}
+              detailLabel={t('common.technicalDetail')}
+            />
+          )}
 
           <View style={styles.modeRow}>
             <Button
@@ -304,7 +400,7 @@ export default function LevelCameraScreen() {
               onPress={() => setMode('rim')}
             />
             <Button
-              label={`${t('level.camera.waterlinePoints')} ${waterline.length}/2`}
+              label={t('level.camera.waterlinePoints')}
               variant={mode === 'waterline' ? 'primary' : 'secondary'}
               onPress={() => setMode('waterline')}
             />
@@ -315,44 +411,40 @@ export default function LevelCameraScreen() {
             variant="secondary"
             onPress={() => {
               setRimPoints([]);
-              setWaterline([]);
-              setEstimate(null);
+              setWaterLine(null);
+              setInitialWaterLine(null);
+              setWaterLineHistory([]);
             }}
           />
           <Button label={t('level.camera.retake')} variant="secondary" onPress={() => setPhotoUri(null)} />
-          <Button
-            label={t('level.camera.estimate')}
-            onPress={runFit}
-            disabled={rimPoints.length < MIN_RIM_POINTS || waterline.length !== 2}
-          />
         </>
       )}
 
-      {estimate && !estimate.ok ? (
+      {liveEstimate && !liveEstimate.ok ? (
         <ErrorBlock
-          title={t(estimate.error.messageKey)}
-          detail={estimate.error.detail}
+          title={t(liveEstimate.error.messageKey)}
+          detail={liveEstimate.error.detail}
           detailLabel={t('common.technicalDetail')}
         />
       ) : null}
 
-      {estimate?.ok ? (
-        <Card tone={estimate.value.confidence === 'WEAK' ? 'warning' : 'neutral'}>
+      {liveEstimate?.ok ? (
+        <Card tone={liveEstimate.value.confidence === 'WEAK' ? 'warning' : 'neutral'}>
           <ValueRow
             label={t('measure.depth')}
-            value={formatNumber(fromMetres(estimate.value.depth, draft.unit), 3)}
+            value={formatNumber(fromMetres(liveEstimate.value.depth, draft.unit), 3)}
             unit={draft.unit}
             provenance={t('provenance.measured')}
           />
-          <ValueRow label={t('report.fillRatio')} value={formatNumber(estimate.value.fillRatio, 3)} />
+          <ValueRow label={t('report.fillRatio')} value={formatNumber(liveEstimate.value.fillRatio, 3)} />
           <ValueRow
             label={t('level.camera.confidence')}
-            value={estimate.value.confidence}
-            tone={estimate.value.confidence === 'WEAK' ? 'warning' : 'neutral'}
+            value={liveEstimate.value.confidence}
+            tone={liveEstimate.value.confidence === 'WEAK' ? 'warning' : 'neutral'}
           />
           <ValueRow
             label="rim fit"
-            value={`${estimate.value.fit.inlierCount} pts · residual ${formatNumber(estimate.value.fit.residual, 2)} px · axis ratio ${formatNumber(estimate.value.fit.axisRatio, 3)}`}
+            value={`${liveEstimate.value.fit.inlierCount} pts · residual ${formatNumber(liveEstimate.value.fit.residual, 2)} px · axis ratio ${formatNumber(liveEstimate.value.fit.axisRatio, 3)}`}
           />
           <Note tone="warning">{t('level.camera.affineModelLimitation')}</Note>
           <Button label={t('level.camera.useDepth')} onPress={useDepth} />
@@ -392,6 +484,5 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
     backgroundColor: 'rgba(5,11,14,0.4)',
   },
-  markerWater: { borderColor: colors.warning },
   modeRow: { flexDirection: 'row', gap: spacing.sm },
 });

@@ -1,6 +1,7 @@
 import type { SavedMeasurement } from '../domain/measurement';
 import { classifyAccuracy } from '../domain/gps';
 import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
+import { median } from '../domain/linalg';
 import type { CsvFormat } from '../storage/settings';
 
 /**
@@ -68,8 +69,16 @@ export const CSV_COLUMNS = [
   'camera_lens',
   'camera_width_px',
   'camera_height_px',
+  'zoom',
   'nominal_fps',
   'actual_fps',
+  'timing_source',
+  'delta_t_s',
+  'streamwise_velocity_m_s',
+  'lateral_velocity_m_s',
+  'speed_magnitude_m_s',
+  'cross_flow_ratio',
+  'ssiv_snr',
   'pitch_deg',
   'roll_deg',
   'angular_velocity_rms_deg_s',
@@ -156,8 +165,18 @@ export function measurementRow(measurement: SavedMeasurement): Record<CsvColumn,
     camera_lens: measurement.sensorSnapshot?.camera.facing ?? '',
     camera_width_px: measurement.sensorSnapshot?.camera.sourceWidth ?? null,
     camera_height_px: measurement.sensorSnapshot?.camera.sourceHeight ?? null,
+    zoom: measurement.sensorSnapshot?.camera.zoom ?? null,
     nominal_fps: measurement.sensorSnapshot?.camera.nominalFps ?? null,
     actual_fps: measurement.sensorSnapshot?.camera.actualFps ?? null,
+    timing_source: measurement.sensorSnapshot?.camera.timingSource ?? '',
+    delta_t_s: analysis?.frameDeltaS ?? null,
+    streamwise_velocity_m_s: measurement.surfaceVelocity ?? null,
+    lateral_velocity_m_s: analysis?.lateralVelocity ?? null,
+    speed_magnitude_m_s: analysis?.speedMagnitude ?? null,
+    cross_flow_ratio: analysis?.quality.crossFlowRatio ?? null,
+    ssiv_snr: analysis
+      ? median(analysis.vectors.filter((vector) => vector.accepted).map((vector) => vector.snr))
+      : null,
     pitch_deg: measurement.sensorSnapshot?.motion.pitchDeg ?? null,
     roll_deg: measurement.sensorSnapshot?.motion.rollDeg ?? null,
     angular_velocity_rms_deg_s: measurement.sensorSnapshot?.motion.angularVelocityRmsDegPerSec ?? null,

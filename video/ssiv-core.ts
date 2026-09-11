@@ -217,15 +217,26 @@ function applyPointFilters(vector: PointMetrics): VectorRejectionReason | null {
 
 /**
  * Spatial coherence of a vector: how well it agrees with the robust centre of
- * the other survivors in the same frame pair. Real surface flow is locally
- * coherent; a spurious match is not.
+ * its own immediate grid neighbours (up to a 3×3 block sharing a column or
+ * row within 1 cell) — not the whole pair's vector set. A channel's true
+ * velocity profile is locally smooth but globally varied (slower at the
+ * banks, faster at the centre); comparing against a *global* median would
+ * read a real, valid shear region as noise merely for differing from the
+ * centreline. Comparing against local neighbours only flags a vector that
+ * disagrees with the water immediately around it, which is what an actual
+ * mismatch or spurious correlation looks like.
  */
-function computeSpatialCoherence(vector: RawVector, neighbours: readonly RawVector[]): number {
-  const others = neighbours.filter((candidate) => candidate !== vector);
-  if (others.length === 0) return 0;
+function computeSpatialCoherence(vector: RawVector, sameFramePair: readonly RawVector[]): number {
+  const neighbours = sameFramePair.filter(
+    (candidate) =>
+      candidate !== vector &&
+      Math.abs(candidate.gridColumn - vector.gridColumn) <= 1 &&
+      Math.abs(candidate.gridRow - vector.gridRow) <= 1
+  );
+  if (neighbours.length === 0) return 0;
 
-  const centreDx = median(others.map((candidate) => candidate.dxPx));
-  const centreDy = median(others.map((candidate) => candidate.dyPx));
+  const centreDx = median(neighbours.map((candidate) => candidate.dxPx));
+  const centreDy = median(neighbours.map((candidate) => candidate.dyPx));
   const centreMagnitude = Math.hypot(centreDx, centreDy);
   if (!Number.isFinite(centreMagnitude)) return 0;
 
@@ -490,6 +501,7 @@ function robustGate<T extends { dxPx: number; dyPx: number }>(
 
 export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFailure> {
   const { clip, roi, knownDimensions } = input;
+  const streamwiseSign = input.flowDirection === 'REVERSED' ? -1 : 1;
 
   if (clip.pairs.length === 0) {
     return err(ssivFailure('VIDEO_DECODE_FAILURE', 'no frame pairs were decoded'));
@@ -614,7 +626,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
         continue;
       }
       node.displacementM = metric.distanceM;
-      node.velocityMs = metric.dyM / node.frameDeltaS;
+      node.velocityMs = (streamwiseSign * metric.dyM) / node.frameDeltaS;
       node.lateralVelocityMs = metric.dxM / node.frameDeltaS;
       node.speedMs = metric.distanceM / node.frameDeltaS;
       node.accepted = true;
@@ -740,7 +752,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
       continue;
     }
     vector.displacementM = metric.distanceM;
-    vector.velocityMs = metric.dyM / pair.frameDeltaS;
+    vector.velocityMs = (streamwiseSign * metric.dyM) / pair.frameDeltaS;
     vector.lateralVelocityMs = metric.dxM / pair.frameDeltaS;
     vector.speedMs = metric.distanceM / pair.frameDeltaS;
     velocities.push(vector.velocityMs);
@@ -834,6 +846,17 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const medianLateralAbs = lateralAbs.length > 0 ? median(lateralAbs) : 0;
   const crossFlowRatio = medianStreamwiseAbs > 0 ? medianLateralAbs / medianStreamwiseAbs : 0;
 
+  // Signed diagnostics from the same set surfaceVelocity itself came from —
+  // never used for discharge, only reported alongside it.
+  const lateralSigned = sourceForCrossFlow
+    .map((entry) => entry.lateralVelocityMs)
+    .filter((value): value is number => Number.isFinite(value));
+  const speedValues = sourceForCrossFlow
+    .map((entry) => entry.speedMs)
+    .filter((value): value is number => Number.isFinite(value));
+  const lateralVelocity = lateralSigned.length > 0 ? median(lateralSigned) : undefined;
+  const speedMagnitude = speedValues.length > 0 ? median(speedValues) : undefined;
+
   const quality: SsivQualitySummary = {
     totalVectors: vectors.length,
     acceptedVectors: accepted.length,
@@ -859,6 +882,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     velocitySource,
     ...(instantaneousVelocity !== undefined ? { instantaneousVelocity } : {}),
     ...(ensembleVelocity !== undefined ? { ensembleVelocity } : {}),
+    ...(lateralVelocity !== undefined ? { lateralVelocity } : {}),
+    ...(speedMagnitude !== undefined ? { speedMagnitude } : {}),
     velocitySpreadMs:
       velocities.length > 0
         ? medianAbsoluteDeviation(velocities, instantaneousVelocity)

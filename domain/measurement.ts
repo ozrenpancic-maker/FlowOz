@@ -14,6 +14,7 @@ import {
 import { err, ok, type Result } from './result';
 import type {
   Dimensions,
+  FlowDirection,
   GeoLocation,
   GravityVector,
   KnownRoiDimensions,
@@ -60,9 +61,7 @@ export interface SavedMeasurement {
   photoUri?: string;
   gravity?: GravityVector;
   orientation?: string;
-  cameraLevelRimPoints?: MeasurementDraft['cameraLevelRimPoints'];
-  cameraLevelWaterlinePoints?: MeasurementDraft['cameraLevelWaterlinePoints'];
-  cameraLevelFit?: MeasurementDraft['cameraLevelFit'];
+  cameraLevelEvidence?: MeasurementDraft['cameraLevelEvidence'];
   /** Frozen sensor/camera evidence — see MeasurementDraft.sensorSnapshot. */
   sensorSnapshot?: MeasurementDraft['sensorSnapshot'];
   videoUri?: string;
@@ -70,6 +69,8 @@ export interface SavedMeasurement {
   videoSource?: MeasurementDraft['videoSource'];
   videoCapturedAt?: string;
   waterRoi?: WaterRoi;
+  /** Absent means FORWARD — see domain/types.ts's FlowDirection. */
+  flowDirection?: FlowDirection;
   /** The known ROI dimensions that fixed the metric scale. */
   perspectiveScale?: KnownRoiDimensions;
   videoAnalysis?: SsivAnalysis;
@@ -373,15 +374,19 @@ export function calculate(
       depthValid: true,
       ...(draft.levelMethod === 'camera-assisted'
         ? {
-            cameraAssisted: draft.cameraLevelFit
-              ? {
-                  residualPx: draft.cameraLevelFit.residual,
-                  pointCount: draft.cameraLevelFit.inlierCount,
-                }
-              // No fit evidence on the draft (e.g. a depth carried over from
-              // an older record) — grade it as the weak, unverifiable case
-              // rather than assume a fit that was never actually run.
-              : { residualPx: NaN, pointCount: 0 },
+            cameraAssisted: {
+              ...(draft.cameraLevelEvidence
+                ? {
+                    evidence: {
+                      residualPx: draft.cameraLevelEvidence.fit.residual,
+                      pointCount: draft.cameraLevelEvidence.fit.inlierCount,
+                    },
+                  }
+                // No fit evidence on the draft (e.g. a depth carried over
+                // from an older record) — grade it as the weak, unverifiable
+                // case rather than assume a fit that was never actually run.
+                : {}),
+            },
           }
         : {}),
     }),
@@ -467,17 +472,14 @@ export function buildSavedMeasurement(
     ...(draft.photoUri ? { photoUri: draft.photoUri } : {}),
     ...(draft.gravity ? { gravity: draft.gravity } : {}),
     ...(draft.orientation ? { orientation: draft.orientation } : {}),
-    ...(draft.cameraLevelRimPoints ? { cameraLevelRimPoints: draft.cameraLevelRimPoints } : {}),
-    ...(draft.cameraLevelWaterlinePoints
-      ? { cameraLevelWaterlinePoints: draft.cameraLevelWaterlinePoints }
-      : {}),
-    ...(draft.cameraLevelFit ? { cameraLevelFit: draft.cameraLevelFit } : {}),
+    ...(draft.cameraLevelEvidence ? { cameraLevelEvidence: draft.cameraLevelEvidence } : {}),
     ...(draft.sensorSnapshot ? { sensorSnapshot: draft.sensorSnapshot } : {}),
     ...(draft.videoUri ? { videoUri: draft.videoUri } : {}),
     ...(draft.videoDuration !== undefined ? { videoDuration: draft.videoDuration } : {}),
     ...(draft.videoSource ? { videoSource: draft.videoSource } : {}),
     ...(draft.videoCapturedAt ? { videoCapturedAt: draft.videoCapturedAt } : {}),
     ...(draft.waterRoi ? { waterRoi: draft.waterRoi } : {}),
+    ...(draft.flowDirection ? { flowDirection: draft.flowDirection } : {}),
     ...(draft.knownRoiDimensions ? { perspectiveScale: draft.knownRoiDimensions } : {}),
     ...(analysis ? { videoAnalysis: analysis } : {}),
     ...(outcome.surfaceVelocity !== undefined ? { surfaceVelocity: outcome.surfaceVelocity } : {}),

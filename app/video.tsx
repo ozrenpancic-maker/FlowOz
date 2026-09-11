@@ -21,7 +21,7 @@ import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
 import { lateralVelocityProfile } from '../video/lateral-profile';
 import { classifyStability, type MotionSummary, type SensorSnapshot } from '../domain/sensor-snapshot';
 import { alignWithSiteReference, cameraChangedFromReference } from '../domain/site-reference';
-import type { SiteCameraReference } from '../domain/types';
+import type { FlowDirection, SiteCameraReference } from '../domain/types';
 import { MotionSampler } from '../sensors/motion-sampler';
 import { captureDeviceInfo } from '../sensors/device-info';
 import { RoiEditor } from '../ui/RoiEditor';
@@ -105,6 +105,7 @@ export default function VideoVelocityScreen() {
   }, [draft.siteId, repository]);
 
   const [roi, setRoi] = useState(draft.waterRoi ?? defaultRoi());
+  const [flowDirection, setFlowDirection] = useState<FlowDirection>(draft.flowDirection ?? 'FORWARD');
   const [widthText, setWidthText] = useState(
     draft.knownRoiDimensions ? String(draft.knownRoiDimensions.widthM) : ''
   );
@@ -287,6 +288,7 @@ export default function VideoVelocityScreen() {
       durationS: draft.videoDuration ?? duration,
       roi,
       knownDimensions,
+      flowDirection,
     });
   };
 
@@ -319,7 +321,14 @@ export default function VideoVelocityScreen() {
       sourceWidth: result.sourceWidth,
       sourceHeight: result.sourceHeight,
       ...(videoTrack?.frameRate ? { nominalFps: videoTrack.frameRate } : {}),
-      ...(result.frameDeltaS > 0 ? { actualFps: 1 / result.frameDeltaS } : {}),
+      ...(result.frameDeltaS > 0
+        ? {
+            actualFps: 1 / result.frameDeltaS,
+            observedFrameIntervalS: result.frameDeltaS,
+            actualProcessingDeltaT: result.frameDeltaS,
+            timingSource: 'WEBVIEW_MEDIA_TIME' as const,
+          }
+        : {}),
       // Only meaningful when this screen's own camera recorded the clip —
       // ZOOM below is the value it was held at; an imported clip's zoom, if
       // any was ever applied, was never under this app's control.
@@ -352,6 +361,7 @@ export default function VideoVelocityScreen() {
     patchDraft({
       surfaceVelocity: analysis.surfaceVelocity,
       waterRoi: roi,
+      flowDirection,
       knownRoiDimensions: knownDimensions,
       method: 'video',
       sensorSnapshot: buildSensorSnapshot(analysis),
@@ -528,9 +538,27 @@ export default function VideoVelocityScreen() {
 
           <SectionTitle>{t('video.roiTitle')}</SectionTitle>
           <Muted>{t('video.roiHint')}</Muted>
-          <RoiEditor roi={roi} onChange={setRoi} pointLabel={t('video.roiPoint')} aspectRatio={roiAspectRatio}>
+          <RoiEditor
+            roi={roi}
+            onChange={setRoi}
+            pointLabel={t('video.roiPoint')}
+            aspectRatio={roiAspectRatio}
+            sourceSize={videoTrack?.size}
+            fit="cover"
+          >
             <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="cover" />
           </RoiEditor>
+
+          <Choice
+            label={t('video.flowDirection.title')}
+            value={flowDirection}
+            onChange={(value: FlowDirection) => setFlowDirection(value)}
+            options={[
+              { value: 'FORWARD' as const, label: t('video.flowDirection.forward') },
+              { value: 'REVERSED' as const, label: t('video.flowDirection.reversed') },
+            ]}
+          />
+          <Muted>{t('video.flowDirection.hint')}</Muted>
 
           <SectionTitle>{t('video.knownDimensions')}</SectionTitle>
           <Muted>{t('video.scaleHint')}</Muted>
