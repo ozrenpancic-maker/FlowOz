@@ -77,6 +77,69 @@ describe('calculate', () => {
     expect(result.value.provenance.velocity).toBe('MEASURED_VIDEO');
   });
 
+  it('adds a lateral-profile cross-check when the columns cover the ROI well enough', () => {
+    const vector = (gridColumn: number, velocityMs: number) => ({
+      pairIndex: 0,
+      gridColumn,
+      gridRow: 0,
+      x: 0,
+      y: 0,
+      dxPx: 1,
+      dyPx: 1,
+      correlation: 0.9,
+      peakRatio: 1.2,
+      snr: 5,
+      uncertaintyPx: 1,
+      forwardBackwardPx: 0.1,
+      spatialCoherence: 0.9,
+      velocityMs,
+      accepted: true,
+    });
+    const analysis = fakeAnalysis({
+      velocitySource: 'instantaneous',
+      vectors: [vector(0, 1.1), vector(1, 1.2), vector(2, 1.2), vector(3, 1.1)],
+    });
+    // Default fixture: circular, D=0.4 m, depth=0.15 m — below half full, so
+    // the visible surface genuinely spans the whole wetted width.
+    const result = calculate(makeDraft({ method: 'video', alpha: 0.9 }), { analysis });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.lateralProfile).toBeDefined();
+    expect(result.value.lateralProfile?.columnsUsed).toBe(4);
+    expect(result.value.lateralProfile?.flowM3s).toBeGreaterThan(0);
+  });
+
+  it('omits the lateral-profile cross-check rather than integrating a sparse profile', () => {
+    const vector = (gridColumn: number, velocityMs: number) => ({
+      pairIndex: 0,
+      gridColumn,
+      gridRow: 0,
+      x: 0,
+      y: 0,
+      dxPx: 1,
+      dyPx: 1,
+      correlation: 0.9,
+      peakRatio: 1.2,
+      snr: 5,
+      uncertaintyPx: 1,
+      forwardBackwardPx: 0.1,
+      spatialCoherence: 0.9,
+      velocityMs,
+      accepted: true,
+    });
+    // Only 1 of 4 columns has anything — below MIN_COLUMN_COVERAGE_FRACTION.
+    const analysis = fakeAnalysis({
+      velocitySource: 'instantaneous',
+      vectors: [vector(0, 1.2)],
+    });
+    const result = calculate(makeDraft({ method: 'video', alpha: 0.9 }), { analysis });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.lateralProfile).toBeUndefined();
+    // The single-point result is entirely unaffected by the missing cross-check.
+    expect(result.value.flowM3s).toBeGreaterThan(0);
+  });
+
   it('blocks on a physically impossible value before touching the geometry', () => {
     const result = calculate(makeDraft({ depth: -0.5 }));
     expect(result.ok).toBe(false);
@@ -182,6 +245,39 @@ describe('saved measurement assembly', () => {
     expect(measurement.raw.draft.depth).toBe(0.15);
     expect(measurement.measurementVersion).toBe(MEASUREMENT_VERSION);
     expect(measurement.algorithmVersion).toBe(ALGORITHM_VERSION);
+  });
+
+  it('persists the lateral-profile cross-check onto the saved record', () => {
+    const vector = (gridColumn: number, velocityMs: number) => ({
+      pairIndex: 0,
+      gridColumn,
+      gridRow: 0,
+      x: 0,
+      y: 0,
+      dxPx: 1,
+      dyPx: 1,
+      correlation: 0.9,
+      peakRatio: 1.2,
+      snr: 5,
+      uncertaintyPx: 1,
+      forwardBackwardPx: 0.1,
+      spatialCoherence: 0.9,
+      velocityMs,
+      accepted: true,
+    });
+    const analysis = fakeAnalysis({
+      velocitySource: 'instantaneous',
+      vectors: [vector(0, 1.1), vector(1, 1.2), vector(2, 1.2), vector(3, 1.1)],
+    });
+    const draft = makeDraft({ method: 'video', alpha: 0.9 });
+    const outcome = calculate(draft, { analysis });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    const measurement = buildSavedMeasurement('m-1', 'FV-1', draft, outcome.value, { analysis });
+    expect(measurement.lateralProfileFlowM3s).toBeCloseTo(outcome.value.lateralProfile!.flowM3s, 12);
+    expect(measurement.lateralProfileColumnsUsed).toBe(4);
+    expect(measurement.lateralProfileColumnsTotal).toBe(4);
   });
 
   it('marks a video measurement PROCESSED only with an analysis attached', () => {

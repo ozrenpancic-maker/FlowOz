@@ -6,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { videoFlow } from '../domain/hydraulics';
+import { integrateVelocityAreaDischarge } from '../domain/lateral-profile';
 import { computeSection } from '../domain/geometry';
 import { createId } from '../domain/ids';
 import { formatNumber, parseNumericInput } from '../domain/units';
@@ -16,6 +17,7 @@ import { buildCalibration } from '../video/homography';
 import type { SsivFailure } from '../video/failure-taxonomy';
 import { defaultRoi, validateRoi } from '../video/roi';
 import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
+import { lateralVelocityProfile } from '../video/lateral-profile';
 import { RoiEditor } from '../ui/RoiEditor';
 import { SsivProcessor, type SsivProgress, type SsivRequest } from '../ui/SsivProcessor';
 import {
@@ -248,6 +250,25 @@ export default function VideoVelocityScreen() {
     if (!section.ok) return null;
     const flow = videoFlow(section.value, analysis.surfaceVelocity, draft.alpha);
     return flow.ok ? flow.value : null;
+  })();
+
+  // The lateral-profile cross-check — see domain/lateral-profile.ts for what
+  // it assumes and why it never replaces previewFlow above.
+  const lateralProfilePreview = (() => {
+    if (!analysis || draft.depth === null) return null;
+    const section = computeSection(draft.dimensions, draft.depth);
+    if (!section.ok) return null;
+    const profile = lateralVelocityProfile(analysis);
+    const integrated = integrateVelocityAreaDischarge(
+      draft.dimensions,
+      draft.depth,
+      section.value.topWidth,
+      section.value.area,
+      profile.columns,
+      draft.alpha,
+      profile.columnsTotal
+    );
+    return integrated.ok ? integrated.value : null;
   })();
 
   const busy = request !== null;
@@ -498,6 +519,16 @@ export default function VideoVelocityScreen() {
               <ValueRow label={t('video.flow')} value={formatNumber(previewFlow.flow, 5)} unit="m³/s" />
             </>
           ) : null}
+          {lateralProfilePreview ? (
+            <ValueRow
+              label={t('video.lateralProfileFlow')}
+              value={formatNumber(lateralProfilePreview.flow, 5)}
+              unit="m³/s"
+              detail={`${lateralProfilePreview.columnsUsed}/${lateralProfilePreview.columnsTotal} ${t('video.lateralProfileColumns')}`}
+            />
+          ) : (
+            <Note tone="neutral">{t('video.lateralProfileUnavailable')}</Note>
+          )}
           <ValueRow label={t('quality.uncertainty')} value={t('quality.uncertaintyWithheld')} withheld />
 
           <Button

@@ -1,5 +1,6 @@
 import { computeSection, type GeometryError } from './geometry';
 import { manningVelocity, manualFlow, videoFlow, type HydraulicsError } from './hydraulics';
+import { integrateVelocityAreaDischarge, type LateralVelocityColumn } from './lateral-profile';
 import { buildReport, type PlausibilityReport } from './plausibility';
 import { assess, gradeGeometry, gradeLevel, gradeVelocity, type QualityAssessment } from './quality';
 import { err, ok, type Result } from './result';
@@ -18,6 +19,7 @@ import type {
 } from './types';
 import { ALGORITHM_VERSION, MEASUREMENT_VERSION } from './types';
 import type { SsivAnalysis } from '../video/types';
+import { lateralVelocityProfile } from '../video/lateral-profile';
 
 /**
  * The saved record (specification §14).
@@ -60,6 +62,10 @@ export interface SavedMeasurement {
   videoAnalysis?: SsivAnalysis;
   surfaceVelocity?: number;
   alpha?: number;
+  /** Velocity-area cross-check, when the ROI's column coverage allowed one. */
+  lateralProfileFlowM3s?: number;
+  lateralProfileColumnsUsed?: number;
+  lateralProfileColumnsTotal?: number;
   location?: GeoLocation;
   measurementVersion: number;
   algorithmVersion: string;
@@ -111,6 +117,19 @@ export interface CalculationError {
   field?: string;
 }
 
+/**
+ * The lateral-profile cross-check, when the ROI's column coverage allowed
+ * one to be computed. Informational only — see lateral-profile.ts for why it
+ * is never the number that gets saved as the measurement's own discharge.
+ */
+export interface LateralProfileOutcome {
+  flowM3s: number;
+  meanVelocity: number;
+  columns: LateralVelocityColumn[];
+  columnsUsed: number;
+  columnsTotal: number;
+}
+
 export interface CalculationOutcome {
   section: SectionProperties;
   velocity: number;
@@ -118,6 +137,7 @@ export interface CalculationOutcome {
   surfaceVelocity?: number;
   alpha?: number;
   slope?: number;
+  lateralProfile?: LateralProfileOutcome;
   quality: QualityAssessment;
   plausibility: PlausibilityReport;
   provenance: MeasurementProvenance;
@@ -207,6 +227,7 @@ export function calculate(
   let alpha: number | undefined;
   let slope: number | undefined;
   let velocityProvenance: Provenance;
+  let lateralProfileOutcome: LateralProfileOutcome | undefined;
 
   switch (draft.method) {
     case 'manning': {
@@ -286,6 +307,32 @@ export function calculate(
       surfaceVelocity = result.value.surfaceVelocity;
       alpha = result.value.alpha;
       velocityProvenance = 'MEASURED_VIDEO';
+
+      // An informational cross-check only — see LateralProfileOutcome. A
+      // draft carrying an analysis from a previous run but no fresh one this
+      // time (options?.analysis undefined) has no per-column evidence to
+      // build it from, so it is silently absent rather than guessed.
+      if (options?.analysis) {
+        const profile = lateralVelocityProfile(options.analysis);
+        const integrated = integrateVelocityAreaDischarge(
+          draft.dimensions,
+          draft.depth,
+          section.value.topWidth,
+          section.value.area,
+          profile.columns,
+          draft.alpha,
+          profile.columnsTotal
+        );
+        if (integrated.ok) {
+          lateralProfileOutcome = {
+            flowM3s: integrated.value.flow,
+            meanVelocity: integrated.value.meanVelocity,
+            columns: profile.columns,
+            columnsUsed: integrated.value.columnsUsed,
+            columnsTotal: integrated.value.columnsTotal,
+          };
+        }
+      }
       break;
     }
     default: {
@@ -339,6 +386,7 @@ export function calculate(
     ...(surfaceVelocity !== undefined ? { surfaceVelocity } : {}),
     ...(alpha !== undefined ? { alpha } : {}),
     ...(slope !== undefined ? { slope } : {}),
+    ...(lateralProfileOutcome !== undefined ? { lateralProfile: lateralProfileOutcome } : {}),
     quality,
     plausibility,
     provenance: {
@@ -390,6 +438,13 @@ export function buildSavedMeasurement(
     ...(analysis ? { videoAnalysis: analysis } : {}),
     ...(outcome.surfaceVelocity !== undefined ? { surfaceVelocity: outcome.surfaceVelocity } : {}),
     ...(outcome.alpha !== undefined ? { alpha: outcome.alpha } : {}),
+    ...(outcome.lateralProfile
+      ? {
+          lateralProfileFlowM3s: outcome.lateralProfile.flowM3s,
+          lateralProfileColumnsUsed: outcome.lateralProfile.columnsUsed,
+          lateralProfileColumnsTotal: outcome.lateralProfile.columnsTotal,
+        }
+      : {}),
     ...(draft.location ? { location: draft.location } : {}),
     measurementVersion: MEASUREMENT_VERSION,
     algorithmVersion: ALGORITHM_VERSION,

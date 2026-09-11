@@ -193,6 +193,15 @@ export function buildReportModel(
         methodRows.push(numberRow('report.roiWidth', measurement.perspectiveScale.widthM, 3, 'm'));
         methodRows.push(numberRow('report.roiLength', measurement.perspectiveScale.lengthM, 3, 'm'));
       }
+      if (measurement.lateralProfileFlowM3s !== undefined) {
+        methodRows.push({
+          labelKey: 'report.lateralProfileFlow',
+          value:
+            `${formatNumber(measurement.lateralProfileFlowM3s, 5)} m³/s ` +
+            `(${measurement.lateralProfileColumnsUsed ?? 0}/${measurement.lateralProfileColumnsTotal ?? 0} ` +
+            `columns)`,
+        });
+      }
     }
   }
   methodRows.push(
