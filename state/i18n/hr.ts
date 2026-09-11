@@ -186,7 +186,11 @@ export const hr: Record<keyof typeof en, string> = {
     'voda stvarno teče kroz presjek.',
   'ssiv.action.INVALID_ROI_CALIBRATION': 'Ispravite ROI točke te poznatu širinu i duljinu.',
   'ssiv.action.VIDEO_DECODE_FAILURE': 'Snimite ili uvezite drugi podržani video.',
-  'ssiv.action.UNSTABLE_CAMERA': 'Učvrstite telefon i ostavite stacionarne rubove scene u kadru.',
+  'ssiv.action.UNSTABLE_CAMERA':
+    'Učvrstite telefon i pobrinite se da izvan ROI-ja u kadru ostane vidljivo teksturirana ' +
+    'statična površina (rub, oznaka, pukotina, spoj). Glatka, jednolična površina ondje (pločica, ' +
+    'obojeni zid, sjajna keramika) ne daje ništa za praćenje provjeri stabilnosti kamere, i ovo će ' +
+    'zakazati na isti način čak i na potpuno mirnom stativu.',
   'ssiv.action.UNDEREXPOSED_VIDEO': 'Snimite uz bolje osvjetljenje ili osvijetlite vodenu površinu.',
   'ssiv.action.EXCESSIVE_GLARE': 'Promijenite kut kamere ili vrijeme snimanja kako biste uklonili odsjaj s vode.',
   'ssiv.action.INSUFFICIENT_SURFACE_CONTRAST':

@@ -189,7 +189,10 @@ export const en = {
     'Correct the ROI points and the known width and length.',
   'ssiv.action.VIDEO_DECODE_FAILURE': 'Record or import another supported video.',
   'ssiv.action.UNSTABLE_CAMERA':
-    'Brace the phone and keep stationary edges of the scene in frame.',
+    'Brace the phone, and make sure a stationary, visibly textured surface (an edge, a mark, a ' +
+    'crack, a joint) stays in frame outside the ROI. A plain smooth surface there — tile, a ' +
+    'painted wall, glossy ceramic — gives the camera-stability check nothing to track, and this ' +
+    'fails the same way even on a rock-steady tripod.',
   'ssiv.action.UNDEREXPOSED_VIDEO': 'Record in better light, or add lighting on the water surface.',
   'ssiv.action.EXCESSIVE_GLARE':
     'Change the camera angle or shooting time to remove the reflection off the water.',
