@@ -684,10 +684,19 @@ export default function VideoVelocityScreen() {
             unit="px"
           />
           {analysis.quality.crossFlowRatio > analysis.quality.crossFlowWarningRatio ? (
-            <Note tone="warning">
-              {t('video.crossFlowWarning')} ({formatNumber(analysis.quality.crossFlowRatio, 2)})
-            </Note>
+            <>
+              <Note tone="warning">
+                {t('video.crossFlowWarning')} ({formatNumber(analysis.quality.crossFlowRatio, 2)})
+              </Note>
+              {analysis.quality.distinctAcceptedColumns <= 1 ? (
+                <Note tone="warning">{t('video.crossFlowNarrowColumn')}</Note>
+              ) : null}
+            </>
           ) : null}
+          <ValueRow
+            label={t('video.distinctAcceptedColumns')}
+            value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
+          />
           <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} tone="pass" />
 
           <SectionTitle>{t('video.cameraStability.title')}</SectionTitle>

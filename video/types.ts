@@ -268,6 +268,16 @@ export interface SsivQualitySummary {
   crossFlowRatio: number;
   /** crossFlowRatio past which the operator is warned the ROI may be misaligned. */
   crossFlowWarningRatio: number;
+  /**
+   * Distinct interrogation-grid columns (out of SSIV_THRESHOLDS.gridColumns)
+   * represented among the vectors that fed the reported velocity. Confirmed
+   * on real field data: when this is 1, every accepted vector came from the
+   * same strip of the ROI while the rest of the grid was rejected outright —
+   * the classic signature of an ROI edge sitting on the bank or a rock
+   * instead of moving water, which a high crossFlowRatio alone reads as a
+   * misaligned edge rather than what it actually is.
+   */
+  distinctAcceptedColumns: number;
   /** Image-quality metrics computed on the ROI's own bounding box of the first
    * decoded frame — present whenever a clip has at least one frame pair. */
   imageQuality?: ImageQualityMetrics;

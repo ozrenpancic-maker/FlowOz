@@ -160,6 +160,9 @@ export const hr: Record<keyof typeof en, string> = {
     'PROMIJENJENA KONFIGURACIJA KAMERE. Metričku kalibraciju treba ponoviti — spremljena kalibracija ove lokacije napravljena je s drugom kamerom, rezolucijom ili zumom.',
   'video.crossFlowWarning':
     'JAK POPREČNI TOK. PROVJERITE ROI ILI SMJER TOKA. Poprečna komponenta protoka je velika u odnosu na nizvodnu brzinu — to obično znači da nizvodni rub ROI-a nije paralelan sa stvarnim tokom, ili je gornji prekidač smjera toka postavljen pogrešno. Još nije primijenjen prag odbacivanja; omjer ispod se bilježi za buduću validaciju. Omjer (poprečno/nizvodno):',
+  'video.crossFlowNarrowColumn':
+    'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
+  'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
   'video.stablePairs': 'Stabilizirani parovi kadrova',
   'video.alphaUsed': 'Korišteni alpha',
   'video.viewVectors': 'PRIKAŽI VEKTORE / ANALIZU',
@@ -336,6 +339,7 @@ export const hr: Record<keyof typeof en, string> = {
   'saved.technical.lateralVelocity': 'Bočna brzina (dijagnostičko)',
   'saved.technical.speedMagnitude': 'Ukupna brzina (dijagnostičko)',
   'saved.technical.crossFlowRatio': 'Omjer poprečnog toka',
+  'saved.technical.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
   'saved.technical.ssivSnr': 'SSIV SNR (medijan)',
   'saved.technical.algorithmVersion': 'Verzija algoritma',
   'saved.technical.cameraLevelTitle': 'DOKAZI KAMERSKE RAZINE',

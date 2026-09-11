@@ -448,6 +448,14 @@ export default function MeasurementDetailScreen() {
                     value={formatNumber(analysis.quality.crossFlowRatio, 3)}
                   />
                   <ValueRow
+                    label={t('saved.technical.distinctAcceptedColumns')}
+                    value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
+                  />
+                  {analysis.quality.crossFlowRatio > analysis.quality.crossFlowWarningRatio &&
+                  analysis.quality.distinctAcceptedColumns <= 1 ? (
+                    <Note tone="warning">{t('video.crossFlowNarrowColumn')}</Note>
+                  ) : null}
+                  <ValueRow
                     label={t('saved.technical.ssivSnr')}
                     value={formatNumber(median(analysis.vectors.filter((v) => v.accepted).map((v) => v.snr)), 2)}
                   />

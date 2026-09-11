@@ -866,6 +866,12 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const medianLateralAbs = lateralAbs.length > 0 ? median(lateralAbs) : 0;
   const crossFlowRatio = medianStreamwiseAbs > 0 ? medianLateralAbs / medianStreamwiseAbs : 0;
 
+  // How much of the ROI's width the reported velocity actually speaks for.
+  // A high crossFlowRatio from vectors spread across the grid is a real
+  // alignment problem; the same ratio from a single column is instead the
+  // signature of that column sitting on the bank, not the water.
+  const distinctAcceptedColumns = new Set(sourceForCrossFlow.map((entry) => entry.gridColumn)).size;
+
   // Signed diagnostics from the same set surfaceVelocity itself came from —
   // never used for discharge, only reported alongside it.
   const lateralSigned = sourceForCrossFlow
@@ -894,6 +900,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     ensemblePairsUsed: ensembleRun.pairsUsed,
     crossFlowRatio,
     crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
+    distinctAcceptedColumns,
     ...(imageQuality ? { imageQuality } : {}),
   };
 

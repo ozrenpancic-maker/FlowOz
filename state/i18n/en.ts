@@ -161,6 +161,9 @@ export const en = {
     'CAMERA CONFIGURATION CHANGED. Metric calibration should be repeated — this site’s saved calibration was built with a different camera, resolution or zoom.',
   'video.crossFlowWarning':
     'STRONG CROSS-FLOW. ROI OR FLOW DIRECTION SHOULD BE REVIEWED. Cross-flow is large relative to the downstream velocity — this usually means the ROI’s downstream edge is not parallel to the actual flow, or the flow direction toggle above is set the wrong way. No rejection threshold is applied yet; the ratio below is recorded for later validation. Ratio (lateral/streamwise):',
+  'video.crossFlowNarrowColumn':
+    'MORE LIKELY CAUSE: the result comes from a single grid column of the ROI (see "Distinct grid columns" below) while the rest of the grid was rejected for weak correlation. That is the signature of that edge of the ROI sitting on the bank, a rock, or other static ground rather than water — not a misaligned flow direction. Narrow the ROI to cover only the water surface and re-run the measurement.',
+  'video.distinctAcceptedColumns': 'Distinct grid columns in result',
   'video.stablePairs': 'Stabilised frame pairs',
   'video.alphaUsed': 'Alpha used',
   'video.viewVectors': 'VIEW VECTORS / ANALYSIS',
@@ -339,6 +342,7 @@ export const en = {
   'saved.technical.lateralVelocity': 'Lateral velocity (diagnostic)',
   'saved.technical.speedMagnitude': 'Speed magnitude (diagnostic)',
   'saved.technical.crossFlowRatio': 'Cross-flow ratio',
+  'saved.technical.distinctAcceptedColumns': 'Distinct grid columns in result',
   'saved.technical.ssivSnr': 'SSIV SNR (median)',
   'saved.technical.algorithmVersion': 'Algorithm version',
   'saved.technical.cameraLevelTitle': 'CAMERA LEVEL EVIDENCE',
