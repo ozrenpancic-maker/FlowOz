@@ -773,6 +773,19 @@ export default function VideoVelocityScreen() {
             label={t('video.distinctAcceptedColumns')}
             value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
           />
+          <ValueRow
+            label={t('video.staticBackground')}
+            value={
+              Number.isFinite(analysis.quality.staticBackgroundCorrelation)
+                ? formatNumber(analysis.quality.staticBackgroundCorrelation, 3)
+                : '—'
+            }
+            detail={t(
+              analysis.quality.backgroundSuppressed
+                ? 'video.backgroundSuppressed'
+                : 'video.backgroundKept'
+            )}
+          />
           <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} tone="pass" />
 
           <SectionTitle>{t('video.cameraStability.title')}</SectionTitle>

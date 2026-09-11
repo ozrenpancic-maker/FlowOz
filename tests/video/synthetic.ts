@@ -84,6 +84,18 @@ export interface SyntheticOptions {
   /** Non-rigid warp: every part of the frame moves differently, as under heavy
    * shake or rolling shutter, so no single global shift describes the pair. */
   shakyBackground?: boolean;
+  /**
+   * Shallow clear water over a visible streambed, shot from a tripod: one
+   * scene texture for the WHOLE clip (a stationary camera sees the same bed
+   * in every frame of every pair, unlike the per-pair textures above), with a
+   * weaker moving texture added on top inside the moving region at
+   * `movingAmplitude` of full contrast.
+   *
+   * This is the field case background suppression exists for: the static bed
+   * out-textures the ripples travelling over it, so correlation locks onto the
+   * bed at zero displacement and reports no flow.
+   */
+  visibleBed?: { movingAmplitude: number };
   seed?: number;
 }
 
@@ -98,6 +110,10 @@ export function makeClip(options: SyntheticOptions = {}): DecodedClip {
   const noiseSigma = options.noise ?? 0;
 
   const pairs: FramePair[] = [];
+
+  // One bed for the whole clip: a camera that did not move sees the same
+  // scenery in every pair, which is what makes a temporal median meaningful.
+  const bed = options.visibleBed ? makeTexture(width, height, (options.seed ?? 1000) + 5501) : null;
 
   for (let index = 0; index < pairCount; index += 1) {
     const texture = makeTexture(width, height, (options.seed ?? 1000) + index * 17);
@@ -117,6 +133,24 @@ export function makeClip(options: SyntheticOptions = {}): DecodedClip {
         }
 
         const jitter = () => (noiseSigma > 0 ? (noise() - 0.5) * 2 * noiseSigma : 0);
+
+        if (bed && options.visibleBed) {
+          const insideBedWater = x >= moving.x0 && x <= moving.x1 && y >= moving.y0 && y <= moving.y1;
+          const amplitude = options.visibleBed.movingAmplitude;
+          const bedValue = bed(x, y);
+          if (!insideBedWater) {
+            // Dry bank: bed only, identical in both frames.
+            first[i] = bedValue + jitter();
+            second[i] = bedValue + jitter();
+            continue;
+          }
+          // Water: the same bed seen through it, plus a weaker surface pattern
+          // that travels by the shift between the two frames.
+          first[i] = bedValue + (texture(x, y) - 128) * amplitude + jitter();
+          second[i] = bedValue + (texture(x - shiftX, y - shiftY) - 128) * amplitude + jitter();
+          continue;
+        }
+
         first[i] = texture(x, y) + jitter();
 
         if (options.shakyBackground) {

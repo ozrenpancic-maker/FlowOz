@@ -451,6 +451,19 @@ export default function MeasurementDetailScreen() {
                     label={t('saved.technical.distinctAcceptedColumns')}
                     value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
                   />
+                  <ValueRow
+                    label={t('saved.technical.staticBackground')}
+                    value={
+                      Number.isFinite(analysis.quality.staticBackgroundCorrelation)
+                        ? formatNumber(analysis.quality.staticBackgroundCorrelation, 3)
+                        : '—'
+                    }
+                    detail={t(
+                      analysis.quality.backgroundSuppressed
+                        ? 'video.backgroundSuppressed'
+                        : 'video.backgroundKept'
+                    )}
+                  />
                   {analysis.quality.crossFlowRatio > analysis.quality.crossFlowWarningRatio &&
                   analysis.quality.distinctAcceptedColumns <= 1 ? (
                     <Note tone="warning">{t('video.crossFlowNarrowColumn')}</Note>

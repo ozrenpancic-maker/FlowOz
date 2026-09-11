@@ -278,6 +278,15 @@ export interface SsivQualitySummary {
    * misaligned edge rather than what it actually is.
    */
   distinctAcceptedColumns: number;
+  /**
+   * Median correlation between the sampled frames and the static background
+   * estimated from them — how much of this footage is scenery that never
+   * moved (a streambed seen through clear water, a bank the ROI overlaps)
+   * rather than water. NaN when there were too few frames to estimate one.
+   */
+  staticBackgroundCorrelation: number;
+  /** Whether that background was actually subtracted before interrogation. */
+  backgroundSuppressed: boolean;
   /** Image-quality metrics computed on the ROI's own bounding box of the first
    * decoded frame — present whenever a clip has at least one frame pair. */
   imageQuality?: ImageQualityMetrics;

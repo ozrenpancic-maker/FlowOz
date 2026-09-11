@@ -273,6 +273,41 @@ describe('SSIV analysis of a known displacement', () => {
     expect(result.value.quality.stablePairs).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minStablePairs);
   });
 
+  it('measures water flowing over a visible streambed instead of the bed itself', () => {
+    // The field failure this reproduces: shallow clear water over a textured
+    // bed, shot from a tripod. The bed is the same in every frame and better
+    // textured than the ripples travelling over it, so correlation locks onto
+    // it at zero displacement and reports a velocity near zero — measured on
+    // real footage as 0.63-0.80 correlation at under 0.05 px of displacement
+    // on a channel independently gauged at ~0.4 m/s.
+    const shiftY = 4;
+    const clip = makeClip({ shiftY, visibleBed: { movingAmplitude: 0.3 } });
+    const result = analyse({ clip, roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.quality.backgroundSuppressed).toBe(true);
+    expect(result.value.quality.staticBackgroundCorrelation).toBeGreaterThan(
+      SSIV_THRESHOLDS.minCorrelation
+    );
+
+    // The moving surface, not the bed standing still underneath it.
+    const expectedVelocity = (shiftY * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
+    expect(result.value.surfaceVelocity).toBeCloseTo(expectedVelocity, 1);
+  });
+
+  it('reports that a clip with no static scenery had nothing to suppress', () => {
+    const result = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Every pair of the default clip carries its own texture, so there is no
+    // shared background to remove — and subtracting a meaningless estimate
+    // would inject its own negation into every frame as a fresh common
+    // pattern, the phantom zero-displacement signal this must never create.
+    expect(result.value.quality.backgroundSuppressed).toBe(false);
+    expect(result.value.surfaceVelocity).toBeCloseTo(EXPECTED_VELOCITY, 2);
+  });
+
   it('is repeatable — the same clip gives exactly the same number', () => {
     const first = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
     const second = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });

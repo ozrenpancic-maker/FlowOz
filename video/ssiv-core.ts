@@ -12,6 +12,7 @@ import {
   type Grid,
   type PreparedGrid,
 } from './ncc';
+import { suppressStaticBackground } from './background';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import { cameraDisplacementAt, stabiliseAll } from './stabilisation';
 import { computeImageQuality, cropFrame, refuseOnImageQuality, type ImageQualityMetrics } from './image-quality';
@@ -574,6 +575,9 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   // step runs here.
   const pairs = clip.pairs;
 
+  // Camera motion is measured on the frames as captured: background anchors
+  // track precisely the static scenery the suppression below removes, so this
+  // has to run first and on the untouched planes.
   const stabilisation = stabiliseAll(pairs, roi);
   const stablePairs = stabilisation.filter((entry) => entry.stable);
   if (stablePairs.length < SSIV_THRESHOLDS.minStablePairs) {
@@ -596,13 +600,19 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const minUsableDeltaS = SSIV_THRESHOLDS.minFrameDeltaS * (1 - deltaTolerance);
   const maxUsableDeltaS = SSIV_THRESHOLDS.maxFrameDeltaS * (1 + deltaTolerance);
 
+  // Everything that held still across the clip is removed before the water is
+  // interrogated, so a streambed visible through shallow water cannot win the
+  // correlation against the ripples moving over it — see background.ts.
+  const background = suppressStaticBackground(pairs);
+  const movingPairs = background.pairs;
+
   // The ensemble estimate: correlation surfaces of every stabilised pair
   // averaged before a peak is looked for, judged by the same filters as the
   // per-pair vectors and then the same robust gate, node by node. Computed
   // up front, alongside the per-pair pass, because a texture too weak for any
   // single pair is exactly what this is for — the INSUFFICIENT_TEXTURE gate
   // below has to see it before giving up.
-  const ensembleRun = measureEnsemble(pairs, stabilisation, roi);
+  const ensembleRun = measureEnsemble(movingPairs, stabilisation, roi);
   const ensemble = ensembleRun.vectors;
   const ensembleVelocities: number[] = [];
   {
@@ -645,7 +655,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
 
   const allVectors: RawVector[] = [];
   const mistimedPairs: number[] = [];
-  for (const pair of pairs) {
+  for (const pair of movingPairs) {
     const entry = stabilisation.find((item) => item.pairIndex === pair.index);
     if (!entry || !entry.stable) continue; // unstable pairs contribute nothing
     if (pair.frameDeltaS < minUsableDeltaS || pair.frameDeltaS > maxUsableDeltaS) {
@@ -901,6 +911,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     crossFlowRatio,
     crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
     distinctAcceptedColumns,
+    staticBackgroundCorrelation: background.correlation,
+    backgroundSuppressed: background.applied,
     ...(imageQuality ? { imageQuality } : {}),
   };
 

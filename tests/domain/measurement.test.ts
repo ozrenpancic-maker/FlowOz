@@ -61,6 +61,8 @@ function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
       crossFlowRatio: 0,
       crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
       distinctAcceptedColumns: 4,
+      staticBackgroundCorrelation: Number.NaN,
+      backgroundSuppressed: false,
     },
     thresholds: SSIV_THRESHOLDS,
     algorithmVersion: ALGORITHM_VERSION,
