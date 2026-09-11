@@ -164,6 +164,16 @@ export const en = {
   'video.crossFlowNarrowColumn':
     'MORE LIKELY CAUSE: the result comes from a single grid column of the ROI (see "Distinct grid columns" below) while the rest of the grid was rejected for weak correlation. That is the signature of that edge of the ROI sitting on the bank, a rock, or other static ground rather than water — not a misaligned flow direction. Narrow the ROI to cover only the water surface and re-run the measurement.',
   'video.distinctAcceptedColumns': 'Distinct grid columns in result',
+  'video.nudgeRoi.title': 'Move ROI (keeps the real width/length)',
+  'video.nudgeRoi.hint':
+    'Once the ROI is correctly placed against its measured width and length, use these arrows to slide the whole box along the channel — the app recomputes the pixels through the calibration so the real width and length stay exactly the same, instead of you guessing new corner positions. A move that lands outside the frame will show an "outside frame" error.',
+  'video.nudgeRoi.step': 'Move step',
+  'video.nudgeRoi.unavailable':
+    'Unavailable until the width, length and all 4 ROI points form a valid calibration (see Calibration status below).',
+  'video.nudgeRoi.up': 'Move ROI toward edge 1-2',
+  'video.nudgeRoi.down': 'Move ROI toward edge 4-3',
+  'video.nudgeRoi.left': 'Move ROI left',
+  'video.nudgeRoi.right': 'Move ROI right',
   'video.stablePairs': 'Stabilised frame pairs',
   'video.alphaUsed': 'Alpha used',
   'video.viewVectors': 'VIEW VECTORS / ANALYSIS',

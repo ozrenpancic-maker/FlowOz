@@ -163,6 +163,16 @@ export const hr: Record<keyof typeof en, string> = {
   'video.crossFlowNarrowColumn':
     'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
   'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
+  'video.nudgeRoi.title': 'Pomakni ROI (čuva stvarnu širinu/duljinu)',
+  'video.nudgeRoi.hint':
+    'Nakon što jednom točno postaviš ROI na izmjerenu širinu i duljinu, ovim strelicama pomakni cijeli okvir po kanalu — aplikacija sama preračuna piksele kroz kalibraciju tako da stvarna širina i duljina ostanu točno iste, umjesto da nagađaš nove točke. Ako pomak izađe izvan kadra, javit će se greška "izvan kadra".',
+  'video.nudgeRoi.step': 'Korak pomaka',
+  'video.nudgeRoi.unavailable':
+    'Nedostupno dok širina, duljina i sve 4 točke ROI-a ne čine važeću kalibraciju (vidi Status kalibracije ispod).',
+  'video.nudgeRoi.up': 'Pomakni ROI prema rubu 1-2',
+  'video.nudgeRoi.down': 'Pomakni ROI prema rubu 4-3',
+  'video.nudgeRoi.left': 'Pomakni ROI lijevo',
+  'video.nudgeRoi.right': 'Pomakni ROI desno',
   'video.stablePairs': 'Stabilizirani parovi kadrova',
   'video.alphaUsed': 'Korišteni alpha',
   'video.viewVectors': 'PRIKAŽI VEKTORE / ANALIZU',

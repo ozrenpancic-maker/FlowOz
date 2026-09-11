@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,7 +14,7 @@ import { formatNumber, parseNumericInput } from '../domain/units';
 import { persistMedia, type StoredMedia } from '../storage/media-storage';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
-import { buildCalibration } from '../video/homography';
+import { buildCalibration, translateRoi } from '../video/homography';
 import type { SsivFailure } from '../video/failure-taxonomy';
 import { defaultRoi, validateRoi } from '../video/roi';
 import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
@@ -113,6 +113,7 @@ export default function VideoVelocityScreen() {
   const [lengthText, setLengthText] = useState(
     draft.knownRoiDimensions ? String(draft.knownRoiDimensions.lengthM) : ''
   );
+  const [nudgeStepText, setNudgeStepText] = useState('0.1');
 
   const [request, setRequest] = useState<SsivRequest | null>(null);
   const [progress, setProgress] = useState<SsivProgress>('idle');
@@ -143,16 +144,35 @@ export default function VideoVelocityScreen() {
     widthM !== null && lengthM !== null ? { widthM, lengthM } : null;
 
   // Calibration is validated against the analysis frame size; before a clip
-  // exists we use its nominal 16:9 working size for the live status.
+  // exists we use its nominal 16:9 working size for the live status. Also
+  // the frame this screen's own ROI nudge buttons compute their homography
+  // against, so both stay consistent with each other.
+  const workingFrameWidth = SSIV_THRESHOLDS.processingWidthPx;
+  const workingFrameHeight = Math.round(workingFrameWidth / roiAspectRatio);
   const calibrationPreview = knownDimensions
-    ? buildCalibration(
-        roi,
-        knownDimensions,
-        SSIV_THRESHOLDS.processingWidthPx,
-        Math.round((SSIV_THRESHOLDS.processingWidthPx * 9) / 16)
-      )
+    ? buildCalibration(roi, knownDimensions, workingFrameWidth, workingFrameHeight)
     : null;
   const roiProblems = validateRoi(roi, knownDimensions ?? undefined);
+
+  const nudgeStepM = parseNumericInput(nudgeStepText);
+  // Re-place the ROI at an exact real-world offset via the homography,
+  // instead of the operator eyeballing new pixel positions for corners that
+  // must keep the same physical width/length — see translateRoi's own
+  // comment for why a freehand drag cannot do this once perspective is
+  // involved. Requires a calibration that is already valid; there is
+  // nothing to move an ROI "within" otherwise.
+  const nudgeRoi = (deltaAcrossM: number, deltaAlongM: number) => {
+    if (!knownDimensions || nudgeStepM === null || nudgeStepM <= 0) return;
+    const moved = translateRoi(
+      roi,
+      knownDimensions,
+      workingFrameWidth,
+      workingFrameHeight,
+      deltaAcrossM * nudgeStepM,
+      deltaAlongM * nudgeStepM
+    );
+    if (moved) setRoi(moved);
+  };
 
   // ----------------------------------------------------------- permissions
 
@@ -555,6 +575,62 @@ export default function VideoVelocityScreen() {
             <Muted>{t('video.vectorOverlayHint')}</Muted>
           ) : null}
 
+          <SectionTitle>{t('video.nudgeRoi.title')}</SectionTitle>
+          <Muted>{t('video.nudgeRoi.hint')}</Muted>
+          {calibrationPreview && calibrationPreview.ok ? (
+            <>
+              <Field
+                label={t('video.nudgeRoi.step')}
+                unit="m"
+                value={nudgeStepText}
+                onChangeText={setNudgeStepText}
+                invalid={nudgeStepText !== '' && (nudgeStepM === null || nudgeStepM <= 0)}
+              />
+              <View style={styles.nudgePad}>
+                <View style={styles.nudgeRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('video.nudgeRoi.up')}
+                    style={styles.nudgeButton}
+                    onPress={() => nudgeRoi(0, -1)}
+                  >
+                    <Text style={styles.nudgeButtonText}>▲</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.nudgeRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('video.nudgeRoi.left')}
+                    style={styles.nudgeButton}
+                    onPress={() => nudgeRoi(-1, 0)}
+                  >
+                    <Text style={styles.nudgeButtonText}>◀</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('video.nudgeRoi.right')}
+                    style={styles.nudgeButton}
+                    onPress={() => nudgeRoi(1, 0)}
+                  >
+                    <Text style={styles.nudgeButtonText}>▶</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.nudgeRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('video.nudgeRoi.down')}
+                    style={styles.nudgeButton}
+                    onPress={() => nudgeRoi(0, 1)}
+                  >
+                    <Text style={styles.nudgeButtonText}>▼</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </>
+          ) : (
+            <Muted>{t('video.nudgeRoi.unavailable')}</Muted>
+          )}
+
           <Choice
             label={t('video.flowDirection.title')}
             value={flowDirection}
@@ -858,4 +934,17 @@ const styles = StyleSheet.create({
   vectorRow: { fontSize: 10, fontFamily: 'monospace' },
   vectorAccepted: { color: colors.pass },
   vectorRejected: { color: colors.textFaint },
+  nudgePad: { alignItems: 'center', gap: spacing.xs },
+  nudgeRow: { flexDirection: 'row', gap: spacing.xs },
+  nudgeButton: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nudgeButtonText: { fontSize: 20, color: colors.accent, fontWeight: '700' },
 });

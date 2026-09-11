@@ -2,7 +2,7 @@
   "expo": {
     "name": "FLOWVISION",
     "slug": "flowvision",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "flowvision",
@@ -19,7 +19,7 @@
     ],
     "android": {
       "package": "com.flowvision.field",
-      "versionCode": 10,
+      "versionCode": 11,
       "backgroundColor": "#050B0E",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",

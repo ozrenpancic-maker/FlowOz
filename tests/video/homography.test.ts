@@ -4,6 +4,7 @@ import {
   buildCalibration,
   metricDisplacement,
   solveHomography,
+  translateRoi,
 } from '../../video/homography';
 import { defaultRoi, edgeLengths, isSelfIntersecting, signedArea, validateRoi } from '../../video/roi';
 import { SSIV_THRESHOLDS } from '../../video/types';
@@ -200,5 +201,79 @@ describe('homography', () => {
     expect(metric?.distanceM).toBeCloseTo(1, 6);
     expect(metric?.dyM).toBeCloseTo(1, 6);
     expect(metric?.dxM).toBeCloseTo(0, 9);
+  });
+});
+
+describe('translateRoi', () => {
+  it('shifts the ROI downstream by exactly the requested distance, keeping width', () => {
+    const moved = translateRoi(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0, 0.5);
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    // 1 m along the flow is 27 px = 0.2 of the 135 px frame height.
+    expect(moved.topLeft.y).toBeCloseTo(0.2 + 0.1, 6);
+    expect(moved.bottomLeft.y).toBeCloseTo(0.8 + 0.1, 6);
+    expect(moved.topLeft.x).toBeCloseTo(rectangleRoi.topLeft.x, 6);
+    expect(moved.bottomRight.x).toBeCloseTo(rectangleRoi.bottomRight.x, 6);
+  });
+
+  it('shifts across the flow, keeping length', () => {
+    const moved = translateRoi(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0.5, 0);
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    // 1 m across is 72 px = 0.3 of the 240 px frame width.
+    expect(moved.topLeft.x).toBeCloseTo(0.2 + 0.15, 6);
+    expect(moved.topRight.x).toBeCloseTo(0.8 + 0.15, 6);
+    expect(moved.topLeft.y).toBeCloseTo(rectangleRoi.topLeft.y, 6);
+  });
+
+  it('produces a rectangle whose recalibration reproduces the same width/length', () => {
+    const moved = translateRoi(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0.3, -0.4);
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    const recalibrated = buildCalibration(moved, dimensions, FRAME_W, FRAME_H);
+    expect(recalibrated.ok).toBe(true);
+    if (!recalibrated.ok) return;
+    expect(recalibrated.value.status).toBe('VALID');
+
+    const topLeftPx = { x: moved.topLeft.x * FRAME_W, y: moved.topLeft.y * FRAME_H };
+    const topRightPx = { x: moved.topRight.x * FRAME_W, y: moved.topRight.y * FRAME_H };
+    const bottomLeftPx = { x: moved.bottomLeft.x * FRAME_W, y: moved.bottomLeft.y * FRAME_H };
+    const width = metricDisplacement(
+      recalibrated.value,
+      topLeftPx.x,
+      topLeftPx.y,
+      topRightPx.x - topLeftPx.x,
+      topRightPx.y - topLeftPx.y
+    );
+    const length = metricDisplacement(
+      recalibrated.value,
+      topLeftPx.x,
+      topLeftPx.y,
+      bottomLeftPx.x - topLeftPx.x,
+      bottomLeftPx.y - topLeftPx.y
+    );
+    expect(width?.distanceM).toBeCloseTo(dimensions.widthM, 6);
+    expect(length?.distanceM).toBeCloseTo(dimensions.lengthM, 6);
+  });
+
+  it('returns null without a valid current calibration — nothing to move within', () => {
+    expect(translateRoi(rectangleRoi, { widthM: 0, lengthM: 3 }, FRAME_W, FRAME_H, 0.1, 0)).toBeNull();
+  });
+
+  it('leaves the ROI unchanged for a zero-distance move', () => {
+    const moved = translateRoi(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0, 0);
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    for (const key of ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as const) {
+      expect(moved[key].x).toBeCloseTo(rectangleRoi[key].x, 6);
+      expect(moved[key].y).toBeCloseTo(rectangleRoi[key].y, 6);
+    }
+  });
+
+  it('does not hide a move that lands outside the visible frame', () => {
+    const moved = translateRoi(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0, 5);
+    expect(moved).not.toBeNull();
+    if (!moved) return;
+    expect(validateRoi(moved, dimensions).map((p) => p.code)).toContain('POINT_OUTSIDE_FRAME');
   });
 });

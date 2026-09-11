@@ -1,6 +1,6 @@
 import { determinant3, invert3, solveLinearSystem } from '../domain/linalg';
 import { err, ok, type Result } from '../domain/result';
-import type { KnownRoiDimensions, WaterRoi } from '../domain/types';
+import type { KnownRoiDimensions, NormalizedPoint, WaterRoi } from '../domain/types';
 import { toPixels, validateRoi, type RoiProblem } from './roi';
 import type { CalibrationStatus } from './types';
 
@@ -213,6 +213,54 @@ export function buildCalibration(
  * the displacement are projected separately — a homography is not linear, so a
  * single scale factor would be wrong.
  */
+/**
+ * Rebuild the ROI's four corners so they enclose the exact same real-world
+ * rectangle (`dimensions` is unchanged), shifted by (deltaAcrossM,
+ * deltaAlongM) along the calibration plane's own axes — across the flow and
+ * downstream respectively.
+ *
+ * This is the operation the manual point-dragging in RoiEditor cannot do by
+ * itself: perspective means the same physical size covers a different pixel
+ * footprint depending on where in the frame it sits, so eyeballing a new
+ * position for an already-measured rectangle silently changes its real
+ * width/length unless the move is computed through the homography, not
+ * clicked freehand.
+ *
+ * Requires a currently valid calibration — without one there is no
+ * established metres-per-pixel relationship to move within, so the caller
+ * gets null rather than a guess. The result can still land outside the
+ * visible frame (validateRoi's own POINT_OUTSIDE_FRAME reports that, same as
+ * any other out-of-frame point) — the camera genuinely does not see that far,
+ * which is not something to silently paper over here.
+ */
+export function translateRoi(
+  roi: WaterRoi,
+  dimensions: KnownRoiDimensions,
+  frameWidth: number,
+  frameHeight: number,
+  deltaAcrossM: number,
+  deltaAlongM: number
+): WaterRoi | null {
+  const calibration = buildCalibration(roi, dimensions, frameWidth, frameHeight);
+  if (!calibration.ok) return null;
+  const { widthM, lengthM } = dimensions;
+  const inverse = calibration.value.inverse;
+
+  const project = (worldX: number, worldY: number): NormalizedPoint | null => {
+    const pixel = applyHomography(inverse, worldX + deltaAcrossM, worldY + deltaAlongM);
+    if (!pixel) return null;
+    return { x: pixel.x / frameWidth, y: pixel.y / frameHeight };
+  };
+
+  const topLeft = project(0, 0);
+  const topRight = project(widthM, 0);
+  const bottomRight = project(widthM, lengthM);
+  const bottomLeft = project(0, lengthM);
+  if (!topLeft || !topRight || !bottomRight || !bottomLeft) return null;
+
+  return { topLeft, topRight, bottomRight, bottomLeft };
+}
+
 export function metricDisplacement(
   homography: Homography,
   fromX: number,
