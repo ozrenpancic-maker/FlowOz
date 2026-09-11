@@ -4,6 +4,7 @@ import { Repository, RepositoryError } from '../../storage/repository';
 import { COLLECTIONS, escapeCellFixtureGuard, indexRow, isSavedMeasurement, isSite, mergeSettingsGuard } from './helpers';
 import { DEFAULT_SETTINGS, mergeSettings } from '../../storage/settings';
 import { makeMeasurement, makeSite } from './fixtures';
+import { buildValidationRecord } from '../../domain/validation-record';
 
 function freshRepository() {
   const store = new MemoryDocumentStore(SCHEMA_VERSION);
@@ -59,6 +60,83 @@ describe('measurements', () => {
     await repository.saveMeasurement(measurement);
     const reopened = await repository.getMeasurement(measurement.id);
     expect(reopened).toEqual(measurement);
+  });
+
+  it('round-trips a full sensor snapshot through real JSON serialisation, including every optional sub-object', async () => {
+    const { repository } = freshRepository();
+    await repository.initialise();
+    const measurement = makeMeasurement('m-snapshot', {
+      method: 'video',
+      surfaceVelocity: 1.1,
+      sensorSnapshot: {
+        timestamp: 1_700_000_000_000,
+        device: { manufacturer: 'Google', model: 'Pixel 8', androidVersion: '15', appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+        camera: {
+          available: true,
+          facing: 'back',
+          sourceWidth: 1280,
+          sourceHeight: 720,
+          nominalFps: 30,
+          actualFps: 29.8,
+          zoom: 0,
+          intrinsicsAvailable: false,
+          distortionAvailable: false,
+        },
+        motion: {
+          accelerometerAvailable: true,
+          gyroscopeAvailable: true,
+          deviceMotionAvailable: true,
+          pitchDeg: 12.3,
+          rollDeg: -1.2,
+          angularVelocityRmsDegPerSec: 0.21,
+          accelerationRmsMps2: 0.1,
+          gravityVector: { x: 0, y: 0.02, z: 0.99 },
+          sampleCount: 42,
+          windowDurationS: 3.1,
+        },
+        location: { available: true, latitude: 45.8, longitude: 16.0, accuracyM: 4.2 },
+        magnetic: { available: true, headingDeg: 91.2, quality: 'QUESTIONABLE' },
+        pressure: { available: true, atmosphericPressureHpa: 1012.5 },
+        imageQuality: {
+          meanLuminance: 128,
+          darkPixelFraction: 0.05,
+          saturatedPixelFraction: 0,
+          localContrast: 9.5,
+          blurScore: 24,
+          glareScore: 0.01,
+          sampleWidth: 240,
+          sampleHeight: 135,
+        },
+        depthCapability: { arcoreSupported: 'UNKNOWN', depthSupported: 'UNKNOWN', tofAccessible: 'UNKNOWN' },
+      },
+    });
+
+    await repository.saveMeasurement(measurement);
+    const reopened = await repository.getMeasurement(measurement.id);
+    expect(reopened?.sensorSnapshot).toEqual(measurement.sensorSnapshot);
+    expect(reopened).toEqual(measurement);
+  });
+
+  it('completes a video measurement whose sensor snapshot has every optional sensor unavailable', async () => {
+    const { repository } = freshRepository();
+    await repository.initialise();
+    const measurement = makeMeasurement('m-no-sensors', {
+      method: 'video',
+      surfaceVelocity: 1.1,
+      sensorSnapshot: {
+        timestamp: Date.now(),
+        device: { appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+        camera: { available: false, intrinsicsAvailable: false, distortionAvailable: false },
+        motion: { accelerometerAvailable: false, gyroscopeAvailable: false, deviceMotionAvailable: false },
+      },
+    });
+
+    await repository.saveMeasurement(measurement);
+    const reopened = await repository.getMeasurement(measurement.id);
+    expect(reopened?.flowM3s).toBeGreaterThan(0);
+    expect(reopened?.dataQuality.cameraStability?.grade).toBe('C');
+    expect(reopened?.dataQuality.cameraStability?.reasonKey).toBe('quality.cameraStability.unknown');
+    expect(reopened?.dataQuality.imageQuality).toBeUndefined();
   });
 
   it('survives an application restart', async () => {
@@ -211,6 +289,21 @@ describe('sites and settings', () => {
     await repository.saveSite(site);
     expect(await repository.getSite(site.id)).toEqual(site);
     expect(await repository.listSites()).toHaveLength(1);
+  });
+
+  it('round-trips a validation record and deletes it cleanly', async () => {
+    const { repository } = freshRepository();
+    await repository.initialise();
+    const record = buildValidationRecord('v-1', makeMeasurement('m-for-validation'), {
+      flowM3s: 0.045,
+    });
+    await repository.saveValidationRecord(record);
+    expect(await repository.getValidationRecord('v-1')).toEqual(record);
+    expect(await repository.listValidationRecords()).toHaveLength(1);
+
+    await repository.deleteValidationRecord('v-1');
+    expect(await repository.getValidationRecord('v-1')).toBeNull();
+    expect(await repository.listValidationRecords()).toHaveLength(0);
   });
 
   it('returns the defaults when nothing has been saved', async () => {

@@ -298,14 +298,17 @@ describe('ensemble correlation', () => {
     // A pathologically wide filter could leak the static, textured bank
     // through a sharp bank/water edge and correlate it against itself at zero
     // displacement — a "flow" reading on a surface that carries nothing. The
-    // ensemble path must fail exactly the way the per-pair path already does.
+    // image-quality pre-check now catches this before any correlation runs
+    // at all (see the "failure taxonomy" tests below), which is a stronger
+    // guarantee against the same phantom-match risk than reaching the
+    // ensemble path and failing there.
     const result = analyse({
       clip: makeClip({ flatWater: true, pairs: 20 }),
       roi: TEST_ROI,
       knownDimensions: TEST_DIMENSIONS,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_TEXTURE');
+    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_SURFACE_CONTRAST');
   });
 
   it('reports which frame pairs actually fed the ensemble', () => {
@@ -323,7 +326,7 @@ describe('ensemble correlation', () => {
 });
 
 describe('failure taxonomy', () => {
-  it('exposes exactly the five specified codes', () => {
+  it('exposes exactly the nine specified codes', () => {
     expect([...SSIV_FAILURE_CODES].sort()).toEqual(
       [
         'INSUFFICIENT_TEXTURE',
@@ -331,6 +334,10 @@ describe('failure taxonomy', () => {
         'INVALID_ROI_CALIBRATION',
         'UNSTABLE_CAMERA',
         'VIDEO_DECODE_FAILURE',
+        'UNDEREXPOSED_VIDEO',
+        'EXCESSIVE_GLARE',
+        'INSUFFICIENT_SURFACE_CONTRAST',
+        'MOTION_BLUR_TOO_HIGH',
       ].sort()
     );
   });
@@ -346,27 +353,30 @@ describe('failure taxonomy', () => {
     expect(isSsivFailure({ code: 'SOMETHING_ELSE' })).toBe(false);
   });
 
-  it('reports INSUFFICIENT TEXTURE for glassy water with a sharp bank', () => {
-    // The camera can be stabilised on the bank; it is the water that carries
-    // nothing to track, which is exactly what this message tells the operator.
+  it('reports INSUFFICIENT SURFACE CONTRAST for glassy water with a sharp bank', () => {
+    // The camera could be stabilised on the bank, but the image-quality
+    // pre-check looks only at the ROI's own bounding box — the water itself
+    // carries nothing to track — and refuses before spending any time on
+    // stabilisation or correlation at all.
     const result = analyse({
       clip: makeClip({ flatWater: true }),
       roi: TEST_ROI,
       knownDimensions: TEST_DIMENSIONS,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_TEXTURE');
+    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_SURFACE_CONTRAST');
   });
 
-  it('reports UNSTABLE CAMERA for a completely featureless frame', () => {
-    // Nothing anywhere can be tracked, so stabilisation is what fails first.
+  it('reports INSUFFICIENT SURFACE CONTRAST for a completely featureless frame', () => {
+    // Nothing anywhere can be tracked; the cheap frame-statistics pre-check
+    // now catches this before stabilisation is even attempted.
     const result = analyse({
       clip: makeClip({ flat: true }),
       roi: TEST_ROI,
       knownDimensions: TEST_DIMENSIONS,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('UNSTABLE_CAMERA');
+    if (!result.ok) expect(result.error.code).toBe('INSUFFICIENT_SURFACE_CONTRAST');
   });
 
   it('reports UNSTABLE CAMERA when the background cannot be tracked', () => {

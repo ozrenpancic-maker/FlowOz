@@ -6,11 +6,16 @@ import { Accelerometer } from 'expo-sensors';
 
 import { estimateDepthFromRim, fitEllipse, MAX_RIM_POINTS, MIN_RIM_POINTS, type Point2D } from '../domain/ellipse';
 import { formatNumber, fromMetres } from '../domain/units';
+import { summarizeMotion, type SensorSnapshot } from '../domain/sensor-snapshot';
+import { captureDeviceInfo } from '../sensors/device-info';
 import { persistMedia } from '../storage/media-storage';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
 import { Badge, Button, Card, ErrorBlock, Muted, Note, Screen, SectionTitle, ValueRow } from '../ui/components';
 import { colors, radius, spacing, typography } from '../ui/theme';
+
+/** No digital zoom for a metric measurement — see app/video.tsx's ZOOM. */
+const ZOOM = 0;
 
 /**
  * Camera-assisted level for a circular pipe.
@@ -159,6 +164,27 @@ export default function LevelCameraScreen() {
 
   const useDepth = () => {
     if (!estimate?.ok) return;
+    const motion = summarizeMotion({
+      accelerometerAvailable: gravity !== null,
+      gyroscopeAvailable: false,
+      deviceMotionAvailable: false,
+      gravitySamples: gravity ? [gravity] : [],
+      angularSpeedsDegPerSec: [],
+      linearAccelSamplesMps2: [],
+    });
+    const sensorSnapshot: SensorSnapshot = {
+      timestamp: Date.now(),
+      device: captureDeviceInfo(),
+      camera: {
+        available: true,
+        facing: 'back',
+        zoom: ZOOM,
+        ...(photoSize ? { sourceWidth: photoSize.width, sourceHeight: photoSize.height } : {}),
+        intrinsicsAvailable: false,
+        distortionAvailable: false,
+      },
+      motion,
+    };
     patchDraft({
       depth: estimate.value.depth,
       levelMethod: 'camera-assisted',
@@ -166,6 +192,7 @@ export default function LevelCameraScreen() {
       cameraLevelRimPoints: rimPoints,
       cameraLevelWaterlinePoints: waterline,
       cameraLevelFit: estimate.value.fit,
+      sensorSnapshot,
     });
     router.back();
   };
@@ -219,6 +246,7 @@ export default function LevelCameraScreen() {
                 style={StyleSheet.absoluteFill}
                 facing="back"
                 mode="picture"
+                zoom={ZOOM}
                 onCameraReady={() => setCameraReady(true)}
                 onMountError={(event) => setMountError(event.message ?? 'unknown mount error')}
               />

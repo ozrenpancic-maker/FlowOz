@@ -93,6 +93,46 @@ describe('report model', () => {
     expect(keys).toContain('report.warning.alphaAssumed');
   });
 
+  it('adds a compact acquisition section only when a sensor snapshot exists, and only for fields actually captured', () => {
+    const withoutSnapshot = buildReportModel(measurement, DEFAULT_SETTINGS);
+    expect(withoutSnapshot.sections.map((s) => s.titleKey)).not.toContain('report.section.acquisition');
+
+    const withSnapshot = {
+      ...makeMeasurement('m-acq', {
+        sensorSnapshot: {
+          timestamp: Date.now(),
+          device: { model: 'Pixel 8', appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+          camera: {
+            available: true,
+            facing: 'back' as const,
+            sourceWidth: 1280,
+            sourceHeight: 720,
+            intrinsicsAvailable: false,
+            distortionAvailable: false,
+          },
+          motion: {
+            accelerometerAvailable: true,
+            gyroscopeAvailable: true,
+            deviceMotionAvailable: true,
+            pitchDeg: 30,
+            rollDeg: 1,
+          },
+        },
+      }),
+    };
+    const model = buildReportModel(withSnapshot, DEFAULT_SETTINGS);
+    const acquisition = model.sections.find((s) => s.titleKey === 'report.section.acquisition');
+    expect(acquisition).toBeDefined();
+    const labels = acquisition?.rows.map((r) => r.labelKey) ?? [];
+    expect(labels).toContain('report.acquisitionDevice');
+    expect(labels).toContain('report.acquisitionOrientation');
+    // No image-quality evidence was on this snapshot, so no row is invented for it.
+    expect(labels).not.toContain('report.acquisitionImageQuality');
+
+    const disabled = buildReportModel(withSnapshot, { ...DEFAULT_SETTINGS, pdfIncludeAcquisition: false });
+    expect(disabled.sections.map((s) => s.titleKey)).not.toContain('report.section.acquisition');
+  });
+
   it('honours the GPS and method-detail settings', () => {
     const located = {
       ...measurement,
@@ -188,6 +228,83 @@ describe('CSV export', () => {
     expect(CSV_COLUMNS).toEqual(expect.arrayContaining(['depth_m', 'area_m2', 'flow_m3s', 'mean_velocity_ms']));
     expect(CSV_COLUMNS).toEqual(expect.arrayContaining(['confidence', 'uncertainty', 'processing_status']));
     expect(measurementRow(measurement).uncertainty).toBe(UNCERTAINTY_WITHHELD);
+  });
+
+  it('leaves the acquisition columns empty, not zero, when there is no sensor snapshot', () => {
+    const row = measurementRow(measurement);
+    for (const column of [
+      'camera_width_px',
+      'camera_height_px',
+      'nominal_fps',
+      'actual_fps',
+      'pitch_deg',
+      'roll_deg',
+      'angular_velocity_rms_deg_s',
+      'acceleration_rms_m_s2',
+      'image_mean_luminance',
+      'saturated_pixel_fraction',
+      'blur_score',
+      'glare_score',
+    ] as const) {
+      expect(row[column]).toBeNull();
+    }
+    expect(row.camera_lens).toBe('');
+    const cells = (toCsv([measurement], 'international').split('\r\n')[1] ?? '').split(',');
+    expect(cells[CSV_COLUMNS.indexOf('pitch_deg')]).toBe('');
+  });
+
+  it('populates the acquisition columns from a real sensor snapshot', () => {
+    const withSnapshot = {
+      ...makeMeasurement('m-csv-acq', {
+        sensorSnapshot: {
+          timestamp: Date.now(),
+          device: { appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+          camera: {
+            available: true,
+            facing: 'back' as const,
+            sourceWidth: 1280,
+            sourceHeight: 720,
+            nominalFps: 30,
+            actualFps: 29.7,
+            intrinsicsAvailable: false,
+            distortionAvailable: false,
+          },
+          motion: {
+            accelerometerAvailable: true,
+            gyroscopeAvailable: true,
+            deviceMotionAvailable: true,
+            pitchDeg: 30,
+            rollDeg: 1,
+            angularVelocityRmsDegPerSec: 0.2,
+            accelerationRmsMps2: 0.15,
+          },
+          imageQuality: {
+            meanLuminance: 120,
+            darkPixelFraction: 0.1,
+            saturatedPixelFraction: 0.02,
+            localContrast: 8,
+            blurScore: 25,
+            glareScore: 0.01,
+            sampleWidth: 240,
+            sampleHeight: 135,
+          },
+        },
+      }),
+    };
+    const row = measurementRow(withSnapshot);
+    expect(row.camera_lens).toBe('back');
+    expect(row.camera_width_px).toBe(1280);
+    expect(row.camera_height_px).toBe(720);
+    expect(row.nominal_fps).toBe(30);
+    expect(row.actual_fps).toBe(29.7);
+    expect(row.pitch_deg).toBe(30);
+    expect(row.roll_deg).toBe(1);
+    expect(row.angular_velocity_rms_deg_s).toBe(0.2);
+    expect(row.acceleration_rms_m_s2).toBe(0.15);
+    expect(row.image_mean_luminance).toBe(120);
+    expect(row.saturated_pixel_fraction).toBe(0.02);
+    expect(row.blur_score).toBe(25);
+    expect(row.glare_score).toBe(0.01);
   });
 
   it('emits a header even for an empty collection', () => {

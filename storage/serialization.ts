@@ -1,5 +1,6 @@
 import type { SavedMeasurement } from '../domain/measurement';
 import type { Site } from '../domain/types';
+import type { ValidationRecord } from '../domain/validation-record';
 import { SCHEMA_VERSION } from './migrations';
 
 /**
@@ -21,6 +22,7 @@ export const COLLECTIONS = {
   sites: 'sites',
   measurements: 'measurements',
   liveSessions: 'live_sessions',
+  validationRecords: 'validation_records',
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
@@ -119,5 +121,15 @@ export function isSite(value: unknown): value is Site {
     typeof record.name === 'string' &&
     typeof record.alpha === 'number' &&
     Array.isArray(record.calibrationPoints)
+  );
+}
+
+export function isValidationRecord(value: unknown): value is ValidationRecord {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Partial<ValidationRecord>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.measurementId === 'string' &&
+    typeof record.createdAt === 'string'
   );
 }

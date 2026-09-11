@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 
 import { parseNumericInput } from '../domain/units';
 import type { CsvFormat, Language } from '../storage/settings';
@@ -17,6 +18,7 @@ import {
 } from '../ui/components';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { t, settings, updateSettings, schemaVersion } = useSettings();
   const [error, setError] = useState<string | null>(null);
   const [alphaText, setAlphaText] = useState(String(settings.defaultAlpha));
@@ -119,6 +121,11 @@ export default function SettingsScreen() {
         value={settings.pdfIncludeMethodDetails}
         onChange={(value) => void apply({ pdfIncludeMethodDetails: value })}
       />
+      <Toggle
+        label={t('settings.pdfIncludeAcquisition')}
+        value={settings.pdfIncludeAcquisition}
+        onChange={(value) => void apply({ pdfIncludeAcquisition: value })}
+      />
 
       <SectionTitle>{t('settings.videoDuration')}</SectionTitle>
       <Choice
@@ -129,6 +136,13 @@ export default function SettingsScreen() {
           { value: 5 as const, label: '5 s' },
           { value: 10 as const, label: '10 s' },
         ]}
+      />
+
+      <SectionTitle>{t('settings.engineering')}</SectionTitle>
+      <Button
+        label={t('capabilities.title')}
+        variant="secondary"
+        onPress={() => router.push('/device-capabilities')}
       />
 
       <SectionTitle>{t('settings.about')}</SectionTitle>

@@ -1,7 +1,17 @@
 import { buildSavedMeasurement, calculate } from '../../domain/measurement';
 import { createDisplayId, createId } from '../../domain/ids';
 import { fitEllipse } from '../../domain/ellipse';
-import { UNCERTAINTY_WITHHELD, assess, gradeGeometry, gradeLevel, gradeVelocity, worstGrade } from '../../domain/quality';
+import {
+  UNCERTAINTY_WITHHELD,
+  assess,
+  gradeCameraStability,
+  gradeGeometry,
+  gradeImageQuality,
+  gradeLevel,
+  gradeVelocity,
+  worstGrade,
+} from '../../domain/quality';
+import type { ImageQualityMetrics } from '../../video/image-quality';
 import { retryDraftFrom } from '../../domain/draft';
 import { ALGORITHM_VERSION, MEASUREMENT_VERSION } from '../../domain/types';
 import { makeDraft, makeMeasurement } from '../storage/fixtures';
@@ -67,6 +77,57 @@ describe('calculate', () => {
     expect(result.value.provenance.velocity).toBe('ESTIMATED');
     expect(result.value.provenance.flow).toBe('CALCULATED');
     expect(result.value.quality.uncertainty).toBe(UNCERTAINTY_WITHHELD);
+  });
+
+  it('grades camera stability and image quality when the draft carries a sensor snapshot', () => {
+    const analysis = fakeAnalysis();
+    const draft = makeDraft({
+      method: 'video',
+      alpha: 0.9,
+      sensorSnapshot: {
+        timestamp: Date.parse('2026-09-10T12:00:00.000Z'),
+        device: { appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+        camera: { available: true, intrinsicsAvailable: false, distortionAvailable: false },
+        motion: {
+          accelerometerAvailable: true,
+          gyroscopeAvailable: true,
+          deviceMotionAvailable: true,
+          angularVelocityRmsDegPerSec: 0.15,
+          accelerationRmsMps2: 0.1,
+        },
+        imageQuality: {
+          meanLuminance: 128,
+          darkPixelFraction: 0.05,
+          saturatedPixelFraction: 0,
+          localContrast: 10,
+          blurScore: 30,
+          glareScore: 0,
+          sampleWidth: 240,
+          sampleHeight: 135,
+        },
+      },
+    });
+    const result = calculate(draft, { analysis });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.cameraStability?.grade).toBe('A');
+    expect(result.value.quality.imageQuality?.grade).toBe('A');
+  });
+
+  it('never grades camera stability or image quality for a non-video method even with a stray sensor snapshot', () => {
+    const draft = makeDraft({
+      sensorSnapshot: {
+        timestamp: Date.now(),
+        device: { appVersion: '1.0.1', algorithmVersion: 'ssiv-1.0.0' },
+        camera: { available: false, intrinsicsAvailable: false, distortionAvailable: false },
+        motion: { accelerometerAvailable: true, gyroscopeAvailable: true, deviceMotionAvailable: true },
+      },
+    });
+    const result = calculate(draft);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.cameraStability).toBeUndefined();
+    expect(result.value.quality.imageQuality).toBeUndefined();
   });
 
   it('computes a video measurement with alpha applied', () => {
@@ -270,6 +331,69 @@ describe('quality grading', () => {
       expect(component.reasonKey).toBeTruthy();
     }
     expect(assessment.uncertainty).toBe(UNCERTAINTY_WITHHELD);
+  });
+
+  it('omits camera stability and image quality when no sensor evidence exists', () => {
+    const assessment = assess(
+      gradeGeometry({ provenance: 'SITE', hasAdvisories: false, sectionValid: true }),
+      gradeLevel({ provenance: 'ENTERED', depthValid: true }),
+      gradeVelocity({ method: 'manning', velocityValid: true })
+    );
+    expect(assessment.cameraStability).toBeUndefined();
+    expect(assessment.imageQuality).toBeUndefined();
+  });
+
+  it('grades camera stability from measured RMS figures, with the numbers traceable in detail', () => {
+    const good = gradeCameraStability({ angularVelocityRmsDegPerSec: 0.1, accelerationRmsMps2: 0.1 });
+    expect(good.grade).toBe('A');
+    expect(good.detail).toContain('0.100');
+
+    const poor = gradeCameraStability({ angularVelocityRmsDegPerSec: 5, accelerationRmsMps2: 0.1 });
+    expect(poor.grade).toBe('C');
+
+    const unknown = gradeCameraStability({});
+    expect(unknown.grade).toBe('C');
+    expect(unknown.reasonKey).toBe('quality.cameraStability.unknown');
+  });
+
+  it('folds camera stability into the overall grade only when it is the weakest component', () => {
+    const strongEverythingElse = assess(
+      gradeGeometry({ provenance: 'SITE', hasAdvisories: false, sectionValid: true }),
+      gradeLevel({ provenance: 'ENTERED', depthValid: true }),
+      gradeVelocity({ method: 'manual', velocityValid: true }),
+      { cameraStability: gradeCameraStability({ angularVelocityRmsDegPerSec: 5, accelerationRmsMps2: 5 }) }
+    );
+    expect(strongEverythingElse.cameraStability?.grade).toBe('C');
+    expect(strongEverythingElse.overall.grade).toBe('C');
+    expect(strongEverythingElse.overall.reasonKey).toMatch(/cameraStability/);
+  });
+
+  function fakeImageMetrics(overrides: Partial<ImageQualityMetrics> = {}): ImageQualityMetrics {
+    return {
+      meanLuminance: 128,
+      darkPixelFraction: 0.05,
+      saturatedPixelFraction: 0,
+      localContrast: 10,
+      blurScore: 30,
+      glareScore: 0,
+      sampleWidth: 64,
+      sampleHeight: 48,
+      ...overrides,
+    };
+  }
+
+  it('grades image quality from the worst of exposure/contrast/sharpness/glare, with the value in detail', () => {
+    const good = gradeImageQuality(fakeImageMetrics());
+    expect(good.grade).toBe('A');
+
+    const blurry = gradeImageQuality(fakeImageMetrics({ blurScore: 2 }));
+    expect(blurry.grade).toBe('C');
+    expect(blurry.reasonKey).toBe('quality.imageQuality.sharpness');
+    expect(blurry.detail).toContain('blurScore');
+
+    const glareHeavy = gradeImageQuality(fakeImageMetrics({ glareScore: 0.3 }));
+    expect(glareHeavy.grade).toBe('C');
+    expect(glareHeavy.reasonKey).toBe('quality.imageQuality.glare');
   });
 });
 

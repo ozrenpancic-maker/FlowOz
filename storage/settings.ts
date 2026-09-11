@@ -20,6 +20,8 @@ export interface AppSettings {
   pdfIncludePhoto: boolean;
   pdfIncludeCrossSection: boolean;
   pdfIncludeMethodDetails: boolean;
+  /** Compact "Acquisition / Device" section — Phase 16. */
+  pdfIncludeAcquisition: boolean;
   /** Default recording length offered on the video screen [s]. */
   defaultVideoDurationS: 3 | 5 | 10;
 }
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pdfIncludePhoto: true,
   pdfIncludeCrossSection: true,
   pdfIncludeMethodDetails: true,
+  pdfIncludeAcquisition: true,
   defaultVideoDurationS: 5,
 };
 
@@ -61,6 +64,7 @@ export function mergeSettings(stored: Partial<AppSettings> | null | undefined): 
     pdfIncludePhoto: stored.pdfIncludePhoto !== false,
     pdfIncludeCrossSection: stored.pdfIncludeCrossSection !== false,
     pdfIncludeMethodDetails: stored.pdfIncludeMethodDetails !== false,
+    pdfIncludeAcquisition: stored.pdfIncludeAcquisition !== false,
     defaultVideoDurationS: duration === 3 || duration === 10 ? duration : 5,
   };
 }

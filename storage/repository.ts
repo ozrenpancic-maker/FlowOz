@@ -1,5 +1,6 @@
 import type { SavedMeasurement } from '../domain/measurement';
 import type { Site } from '../domain/types';
+import type { ValidationRecord } from '../domain/validation-record';
 import type { DocumentStore, StoredRow } from './document-store';
 import { SCHEMA_VERSION } from './migrations';
 import {
@@ -7,6 +8,7 @@ import {
   deserialise,
   isSavedMeasurement,
   isSite,
+  isValidationRecord,
   serialise,
   type CollectionName,
 } from './serialization';
@@ -166,6 +168,37 @@ export class Repository {
   async deleteSite(id: string): Promise<void> {
     this.assertReady();
     await this.enqueue(() => this.store.remove(COLLECTIONS.sites, id));
+  }
+
+  // ------------------------------------------------------- validation records
+
+  async listValidationRecords(): Promise<ValidationRecord[]> {
+    this.assertReady();
+    const rows = await this.store.list(COLLECTIONS.validationRecords);
+    const records: ValidationRecord[] = [];
+    for (const row of rows) {
+      try {
+        const value = deserialise<unknown>(COLLECTIONS.validationRecords, row.id, row.payload);
+        if (isValidationRecord(value)) records.push(value);
+      } catch {
+        const recovered = await this.recover(COLLECTIONS.validationRecords, row.id, isValidationRecord);
+        if (recovered) records.push(recovered);
+      }
+    }
+    return records.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async getValidationRecord(id: string): Promise<ValidationRecord | null> {
+    return this.readDocumentSafely(COLLECTIONS.validationRecords, id, isValidationRecord);
+  }
+
+  async saveValidationRecord(record: ValidationRecord): Promise<void> {
+    await this.writeDocument(COLLECTIONS.validationRecords, record.id, record);
+  }
+
+  async deleteValidationRecord(id: string): Promise<void> {
+    this.assertReady();
+    await this.enqueue(() => this.store.remove(COLLECTIONS.validationRecords, id));
   }
 
   // ------------------------------------------------------------ measurements

@@ -1,5 +1,6 @@
 import type { LengthUnit, SlopeUnit } from './units';
 import type { EllipseFit, Point2D } from './ellipse';
+import type { CameraFingerprint, SensorSnapshot } from './sensor-snapshot';
 
 export type { LengthUnit };
 
@@ -186,6 +187,26 @@ export interface MeasurementDraft {
   alphaProvenance: Provenance;
   location?: GeoLocation;
   notes?: string;
+  /** Frozen sensor/camera evidence for this measurement — captured once, at
+   * the moment of acquisition, and never recomputed from later Site settings. */
+  sensorSnapshot?: SensorSnapshot;
+}
+
+/**
+ * A Site's saved camera pose, for repeatability across return visits — not a
+ * metric calibration. Heading is included only when it was captured with a
+ * quality this app actually trusts (see estimateHeading in
+ * domain/sensor-snapshot.ts, which as implemented never claims that), which
+ * is why "Heading unavailable" is the expected, normal outcome (Phase 3/4):
+ * pitch/roll carry the comparison, not the compass.
+ */
+export interface SiteCameraReference {
+  pitchDeg?: number;
+  rollDeg?: number;
+  headingDeg?: number;
+  cameraFingerprint?: CameraFingerprint;
+  waterRoi?: WaterRoi;
+  savedAt: string;
 }
 
 export interface Site {
@@ -201,6 +222,9 @@ export interface Site {
   location?: GeoLocation;
   /** Live Flow (beta) reference camera pose. Preserved, not developed. */
   liveReferenceCamera?: Record<string, unknown>;
+  /** Saved once, from a past successful measurement, to help re-aim the
+   * camera the same way on a later visit (Phase 3). */
+  referenceCameraOrientation?: SiteCameraReference;
 }
 
 export const DEFAULT_ALPHA = 0.85;

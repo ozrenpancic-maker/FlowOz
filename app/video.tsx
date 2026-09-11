@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -19,6 +19,11 @@ import type { SsivFailure } from '../video/failure-taxonomy';
 import { defaultRoi, validateRoi } from '../video/roi';
 import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
 import { lateralVelocityProfile } from '../video/lateral-profile';
+import { classifyStability, type MotionSummary, type SensorSnapshot } from '../domain/sensor-snapshot';
+import { alignWithSiteReference, cameraChangedFromReference } from '../domain/site-reference';
+import type { SiteCameraReference } from '../domain/types';
+import { MotionSampler } from '../sensors/motion-sampler';
+import { captureDeviceInfo } from '../sensors/device-info';
 import { RoiEditor } from '../ui/RoiEditor';
 import { SsivProcessor, type SsivProgress, type SsivRequest } from '../ui/SsivProcessor';
 import {
@@ -40,13 +45,18 @@ import { colors, radius, spacing, typography } from '../ui/theme';
 const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
 /** Working resolution of the recording; the analysis downscales further. */
 const VIDEO_QUALITY = '720p' as const;
+/** No digital zoom for a metric measurement (Phase 7): uncontrolled zoom
+ * changes the pixel-to-metre scale the ROI calibration assumes. Normalised
+ * 0–1 per CameraViewProps.zoom; 0 is the camera's unzoomed field of view. */
+const ZOOM = 0;
 
 type CameraState = 'idle' | 'starting' | 'ready' | 'mount-error';
 
 export default function VideoVelocityScreen() {
   const router = useRouter();
-  const { t, settings } = useSettings();
+  const { t, settings, repository } = useSettings();
   const { draft, patchDraft, setAnalysis, retryOriginId } = useMeasurement();
+  const [siteReference, setSiteReference] = useState<SiteCameraReference | null>(null);
 
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -59,6 +69,40 @@ export default function VideoVelocityScreen() {
   const [duration, setDuration] = useState<3 | 5 | 10>(settings.defaultVideoDurationS);
   const [showCamera, setShowCamera] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
+  const motionSamplerRef = useRef<MotionSampler | null>(null);
+  const [capturedMotion, setCapturedMotion] = useState<MotionSummary | null>(null);
+
+  // Never leave a sensor subscription running past this screen: if the
+  // operator navigates away mid-recording, stop the sampler on unmount
+  // rather than let it keep listening in the background.
+  useEffect(() => {
+    return () => {
+      motionSamplerRef.current?.stop();
+      motionSamplerRef.current = null;
+    };
+  }, []);
+
+  // A Site's saved camera reference (Phase 3), when this measurement belongs
+  // to one — used only to show ALIGN WITH SITE REFERENCE / CAMERA
+  // CONFIGURATION CHANGED, never to gate or alter the measurement itself.
+  useEffect(() => {
+    let cancelled = false;
+    if (!draft.siteId) {
+      setSiteReference(null);
+      return;
+    }
+    repository
+      .getSite(draft.siteId)
+      .then((site) => {
+        if (!cancelled) setSiteReference(site?.referenceCameraOrientation ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteReference(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.siteId, repository]);
 
   const [roi, setRoi] = useState(draft.waterRoi ?? defaultRoi());
   const [widthText, setWidthText] = useState(
@@ -137,11 +181,22 @@ export default function VideoVelocityScreen() {
     setMediaError(null);
     setMediaDetail(null);
 
+    // Sampled for the actual acquisition window (Phase 2) — a single
+    // instantaneous reading is not a stability metric. Stopped and read back
+    // the moment recordAsync resolves, whichever way it ends (duration limit
+    // or the operator's own STOP), so the window always matches the clip.
+    const sampler = new MotionSampler();
+    motionSamplerRef.current = sampler;
+    void sampler.start();
+
     try {
       const result = await cameraRef.current?.recordAsync({
         maxDuration: duration,
         maxFileSize: MAX_VIDEO_BYTES,
       });
+      const motion = motionSamplerRef.current === sampler ? sampler.stop() : null;
+      motionSamplerRef.current = null;
+      setCapturedMotion(motion);
       if (!result?.uri) {
         setMediaError('media.error.SOURCE_UNREADABLE');
         setMediaDetail('recordAsync returned no URI');
@@ -149,6 +204,10 @@ export default function VideoVelocityScreen() {
       }
       await adoptVideo(result.uri, 'camera', duration);
     } catch (error) {
+      if (motionSamplerRef.current === sampler) {
+        sampler.stop();
+        motionSamplerRef.current = null;
+      }
       setMediaError('media.error.SOURCE_UNREADABLE');
       setMediaDetail(error instanceof Error ? error.message : String(error));
     } finally {
@@ -164,6 +223,9 @@ export default function VideoVelocityScreen() {
     setMediaError(null);
     setMediaDetail(null);
     setImportNote(null);
+    // An imported clip was not recorded through this screen, so there is no
+    // acquisition window to have sampled motion during.
+    setCapturedMotion(null);
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -243,6 +305,47 @@ export default function VideoVelocityScreen() {
     []
   );
 
+  // Frozen once, at accept time: everything here is either known at capture
+  // (motion, device identity) or only knowable after decode (resolution,
+  // image quality) — accept is the first point both are available together,
+  // the same point waterRoi/knownRoiDimensions/surfaceVelocity are already
+  // finalised onto the draft.
+  const buildSensorSnapshot = (result: SsivAnalysis): SensorSnapshot => ({
+    timestamp: Date.now(),
+    device: captureDeviceInfo(),
+    camera: {
+      available: true,
+      facing: 'back',
+      sourceWidth: result.sourceWidth,
+      sourceHeight: result.sourceHeight,
+      ...(videoTrack?.frameRate ? { nominalFps: videoTrack.frameRate } : {}),
+      ...(result.frameDeltaS > 0 ? { actualFps: 1 / result.frameDeltaS } : {}),
+      // Only meaningful when this screen's own camera recorded the clip —
+      // ZOOM below is the value it was held at; an imported clip's zoom, if
+      // any was ever applied, was never under this app's control.
+      ...(draft.videoSource === 'camera' ? { zoom: ZOOM } : {}),
+      intrinsicsAvailable: false,
+      distortionAvailable: false,
+    },
+    motion: capturedMotion ?? {
+      accelerometerAvailable: false,
+      gyroscopeAvailable: false,
+      deviceMotionAvailable: false,
+    },
+    ...(draft.location
+      ? {
+          location: {
+            available: true,
+            latitude: draft.location.latitude,
+            longitude: draft.location.longitude,
+            ...(draft.location.accuracy !== undefined ? { accuracyM: draft.location.accuracy } : {}),
+            ...(draft.location.altitude !== undefined ? { altitudeM: draft.location.altitude } : {}),
+          },
+        }
+      : {}),
+    ...(result.quality.imageQuality ? { imageQuality: result.quality.imageQuality } : {}),
+  });
+
   const acceptResult = () => {
     if (!analysis || !knownDimensions) return;
     setAnalysis(analysis);
@@ -251,6 +354,7 @@ export default function VideoVelocityScreen() {
       waterRoi: roi,
       knownRoiDimensions: knownDimensions,
       method: 'video',
+      sensorSnapshot: buildSensorSnapshot(analysis),
     });
     router.back();
   };
@@ -285,6 +389,31 @@ export default function VideoVelocityScreen() {
 
   const busy = request !== null;
 
+  // Repeatability check against a Site's saved camera pose (Phase 3) —
+  // informational only, never a gate on the result.
+  const orientationAlignment =
+    siteReference && capturedMotion
+      ? alignWithSiteReference(
+          { pitchDeg: capturedMotion.pitchDeg, rollDeg: capturedMotion.rollDeg },
+          siteReference
+        )
+      : null;
+  const cameraConfigurationChanged =
+    siteReference && analysis
+      ? cameraChangedFromReference(
+          {
+            available: true,
+            facing: 'back',
+            sourceWidth: analysis.sourceWidth,
+            sourceHeight: analysis.sourceHeight,
+            ...(draft.videoSource === 'camera' ? { zoom: ZOOM } : {}),
+            intrinsicsAvailable: false,
+            distortionAvailable: false,
+          },
+          siteReference
+        )
+      : false;
+
   return (
     <Screen>
       <Badge label={t('video.experimentalBadge')} tone="experimental" />
@@ -318,6 +447,7 @@ export default function VideoVelocityScreen() {
               facing="back"
               mode="video"
               mute
+              zoom={ZOOM}
               videoQuality={VIDEO_QUALITY}
               onCameraReady={() => setCameraState('ready')}
               onMountError={(event) => {
@@ -525,6 +655,70 @@ export default function VideoVelocityScreen() {
             </Note>
           ) : null}
           <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} tone="pass" />
+
+          <SectionTitle>{t('video.cameraStability.title')}</SectionTitle>
+          {capturedMotion ? (
+            <>
+              <ValueRow
+                label={t('video.cameraStability.deviceMotion')}
+                value={classifyStability(
+                  capturedMotion.angularVelocityRmsDegPerSec,
+                  capturedMotion.accelerationRmsMps2
+                )}
+              />
+              {capturedMotion.angularVelocityRmsDegPerSec !== undefined ? (
+                <ValueRow
+                  label={t('video.cameraStability.angularMotion')}
+                  value={formatNumber(capturedMotion.angularVelocityRmsDegPerSec, 2)}
+                  unit="°/s RMS"
+                  detail={capturedMotion.sampleCount !== undefined ? `n=${capturedMotion.sampleCount}` : undefined}
+                />
+              ) : null}
+              {capturedMotion.pitchDeg !== undefined ? (
+                <ValueRow label={t('video.cameraStability.pitch')} value={formatNumber(capturedMotion.pitchDeg, 1)} unit="°" />
+              ) : null}
+              {capturedMotion.rollDeg !== undefined ? (
+                <ValueRow label={t('video.cameraStability.roll')} value={formatNumber(capturedMotion.rollDeg, 1)} unit="°" />
+              ) : null}
+            </>
+          ) : (
+            <Note tone="neutral">{t('video.cameraStability.unavailable')}</Note>
+          )}
+
+          {cameraConfigurationChanged ? (
+            <Note tone="warning">{t('video.siteReference.configChanged')}</Note>
+          ) : null}
+          {orientationAlignment ? (
+            <>
+              <SectionTitle>{t('video.siteReference.title')}</SectionTitle>
+              {orientationAlignment.pitch ? (
+                <ValueRow
+                  label={t('video.cameraStability.pitch')}
+                  value={`${orientationAlignment.pitch.deltaDeg >= 0 ? '+' : ''}${formatNumber(orientationAlignment.pitch.deltaDeg, 1)}°`}
+                  tone={orientationAlignment.pitch.band === 'POOR' ? 'error' : 'pass'}
+                  detail={orientationAlignment.pitch.band}
+                />
+              ) : null}
+              {orientationAlignment.roll ? (
+                <ValueRow
+                  label={t('video.cameraStability.roll')}
+                  value={`${orientationAlignment.roll.deltaDeg >= 0 ? '+' : ''}${formatNumber(orientationAlignment.roll.deltaDeg, 1)}°`}
+                  tone={orientationAlignment.roll.band === 'POOR' ? 'error' : 'pass'}
+                  detail={orientationAlignment.roll.band}
+                />
+              ) : null}
+              {orientationAlignment.heading ? (
+                <ValueRow
+                  label={t('video.siteReference.heading')}
+                  value={`${orientationAlignment.heading.deltaDeg >= 0 ? '+' : ''}${formatNumber(orientationAlignment.heading.deltaDeg, 1)}°`}
+                  detail={orientationAlignment.heading.band}
+                />
+              ) : (
+                <ValueRow label={t('video.siteReference.heading')} value={t('common.withheld')} withheld />
+              )}
+            </>
+          ) : null}
+
           <ValueRow
             label={t('video.alphaUsed')}
             value={formatNumber(draft.alpha, 3)}

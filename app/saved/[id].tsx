@@ -6,6 +6,9 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import type { SavedMeasurement } from '../../domain/measurement';
 import { classifyAccuracy } from '../../domain/gps';
 import { formatNumber } from '../../domain/units';
+import { classifyStability } from '../../domain/sensor-snapshot';
+import { buildSiteCameraReference } from '../../domain/site-reference';
+import { gradeContrast, gradeExposure, gradeGlare, gradeSharpness } from '../../video/image-quality';
 import { buildReportModel, exportFileName } from '../../reports/report-model';
 import { generatePdf } from '../../reports/pdf';
 import { toCsv } from '../../reports/csv';
@@ -37,6 +40,7 @@ export default function MeasurementDetailScreen() {
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
   const [videoPresent, setVideoPresent] = useState<boolean | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -121,6 +125,30 @@ export default function MeasurementDetailScreen() {
         return;
       }
       setNote('cancelled' in outcome ? t('export.cancelled') : t('export.saved'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveAsSiteReference = async () => {
+    if (!measurement?.siteId || !measurement.sensorSnapshot || busy) return;
+    setBusy('site-reference');
+    setError(null);
+    setNote(null);
+    try {
+      const site = await repository.getSite(measurement.siteId);
+      if (!site) {
+        setError(t('saved.siteReference.siteMissing'));
+        return;
+      }
+      await repository.saveSite({
+        ...site,
+        referenceCameraOrientation: buildSiteCameraReference(measurement.sensorSnapshot, measurement.waterRoi),
+        updatedAt: new Date().toISOString(),
+      });
+      setNote(t('saved.siteReference.saved'));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -300,6 +328,86 @@ export default function MeasurementDetailScreen() {
               router.push('/video');
             }}
           />
+        </>
+      ) : null}
+
+      {measurement.siteId && measurement.sensorSnapshot ? (
+        <Button
+          label={t('saved.siteReference.save')}
+          hint={t('saved.siteReference.hint')}
+          variant="secondary"
+          onPress={saveAsSiteReference}
+          busy={busy === 'site-reference'}
+          disabled={busy !== null}
+        />
+      ) : null}
+
+      {measurement.sensorSnapshot ? (
+        <>
+          <SectionTitle>{t('saved.technicalData')}</SectionTitle>
+          <Button
+            label={showTechnical ? t('common.close') : t('saved.technicalData')}
+            variant="secondary"
+            onPress={() => setShowTechnical((current) => !current)}
+          />
+          {showTechnical ? (
+            <Card>
+              <ValueRow label={t('saved.technical.device')} value={measurement.sensorSnapshot.device.model ?? t('common.withheld')} withheld={!measurement.sensorSnapshot.device.model} />
+              <ValueRow label={t('saved.technical.androidVersion')} value={measurement.sensorSnapshot.device.androidVersion ?? t('common.withheld')} withheld={!measurement.sensorSnapshot.device.androidVersion} />
+              <ValueRow label={t('saved.technical.appVersion')} value={measurement.sensorSnapshot.device.appVersion} />
+
+              <ValueRow
+                label={t('saved.technical.cameraFacing')}
+                value={measurement.sensorSnapshot.camera.facing ?? t('common.withheld')}
+                withheld={!measurement.sensorSnapshot.camera.facing}
+              />
+              {measurement.sensorSnapshot.camera.sourceWidth ? (
+                <ValueRow
+                  label={t('saved.technical.resolution')}
+                  value={`${measurement.sensorSnapshot.camera.sourceWidth}×${measurement.sensorSnapshot.camera.sourceHeight}`}
+                />
+              ) : null}
+              {measurement.sensorSnapshot.camera.nominalFps !== undefined ? (
+                <ValueRow label={t('saved.technical.nominalFps')} value={formatNumber(measurement.sensorSnapshot.camera.nominalFps, 2)} unit="fps" />
+              ) : null}
+              {measurement.sensorSnapshot.camera.actualFps !== undefined ? (
+                <ValueRow label={t('saved.technical.actualFps')} value={formatNumber(measurement.sensorSnapshot.camera.actualFps, 2)} unit="fps" />
+              ) : null}
+              {measurement.sensorSnapshot.camera.zoom !== undefined ? (
+                <ValueRow label={t('saved.technical.zoom')} value={formatNumber(measurement.sensorSnapshot.camera.zoom, 2)} />
+              ) : null}
+
+              <ValueRow
+                label={t('video.cameraStability.deviceMotion')}
+                value={classifyStability(
+                  measurement.sensorSnapshot.motion.angularVelocityRmsDegPerSec,
+                  measurement.sensorSnapshot.motion.accelerationRmsMps2
+                )}
+              />
+              {measurement.sensorSnapshot.motion.angularVelocityRmsDegPerSec !== undefined ? (
+                <ValueRow
+                  label={t('video.cameraStability.angularMotion')}
+                  value={formatNumber(measurement.sensorSnapshot.motion.angularVelocityRmsDegPerSec, 2)}
+                  unit="°/s RMS"
+                />
+              ) : null}
+              {measurement.sensorSnapshot.motion.pitchDeg !== undefined ? (
+                <ValueRow label={t('video.cameraStability.pitch')} value={formatNumber(measurement.sensorSnapshot.motion.pitchDeg, 1)} unit="°" />
+              ) : null}
+              {measurement.sensorSnapshot.motion.rollDeg !== undefined ? (
+                <ValueRow label={t('video.cameraStability.roll')} value={formatNumber(measurement.sensorSnapshot.motion.rollDeg, 1)} unit="°" />
+              ) : null}
+
+              {measurement.sensorSnapshot.imageQuality ? (
+                <>
+                  <ValueRow label={t('saved.technical.exposure')} value={gradeExposure(measurement.sensorSnapshot.imageQuality)} />
+                  <ValueRow label={t('saved.technical.contrast')} value={gradeContrast(measurement.sensorSnapshot.imageQuality)} />
+                  <ValueRow label={t('saved.technical.sharpness')} value={gradeSharpness(measurement.sensorSnapshot.imageQuality)} />
+                  <ValueRow label={t('saved.technical.glare')} value={gradeGlare(measurement.sensorSnapshot.imageQuality)} />
+                </>
+              ) : null}
+            </Card>
+          ) : null}
         </>
       ) : null}
 

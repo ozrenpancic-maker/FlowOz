@@ -2,7 +2,15 @@ import { computeSection, type GeometryError } from './geometry';
 import { manningVelocity, manualFlow, videoFlow, type HydraulicsError } from './hydraulics';
 import { integrateVelocityAreaDischarge, type LateralVelocityColumn } from './lateral-profile';
 import { buildReport, type PlausibilityReport } from './plausibility';
-import { assess, gradeGeometry, gradeLevel, gradeVelocity, type QualityAssessment } from './quality';
+import {
+  assess,
+  gradeCameraStability,
+  gradeGeometry,
+  gradeImageQuality,
+  gradeLevel,
+  gradeVelocity,
+  type QualityAssessment,
+} from './quality';
 import { err, ok, type Result } from './result';
 import type {
   Dimensions,
@@ -55,6 +63,8 @@ export interface SavedMeasurement {
   cameraLevelRimPoints?: MeasurementDraft['cameraLevelRimPoints'];
   cameraLevelWaterlinePoints?: MeasurementDraft['cameraLevelWaterlinePoints'];
   cameraLevelFit?: MeasurementDraft['cameraLevelFit'];
+  /** Frozen sensor/camera evidence — see MeasurementDraft.sensorSnapshot. */
+  sensorSnapshot?: MeasurementDraft['sensorSnapshot'];
   videoUri?: string;
   videoDuration?: number;
   videoSource?: MeasurementDraft['videoSource'];
@@ -389,7 +399,22 @@ export function calculate(
           }
         : {}),
       alphaCalibrated: draft.alphaProvenance === 'CALIBRATED',
-    })
+    }),
+    draft.method === 'video' && draft.sensorSnapshot
+      ? {
+          ...(draft.sensorSnapshot.motion
+            ? {
+                cameraStability: gradeCameraStability({
+                  angularVelocityRmsDegPerSec: draft.sensorSnapshot.motion.angularVelocityRmsDegPerSec,
+                  accelerationRmsMps2: draft.sensorSnapshot.motion.accelerationRmsMps2,
+                }),
+              }
+            : {}),
+          ...(draft.sensorSnapshot.imageQuality
+            ? { imageQuality: gradeImageQuality(draft.sensorSnapshot.imageQuality) }
+            : {}),
+        }
+      : undefined
   );
 
   return ok({
@@ -447,6 +472,7 @@ export function buildSavedMeasurement(
       ? { cameraLevelWaterlinePoints: draft.cameraLevelWaterlinePoints }
       : {}),
     ...(draft.cameraLevelFit ? { cameraLevelFit: draft.cameraLevelFit } : {}),
+    ...(draft.sensorSnapshot ? { sensorSnapshot: draft.sensorSnapshot } : {}),
     ...(draft.videoUri ? { videoUri: draft.videoUri } : {}),
     ...(draft.videoDuration !== undefined ? { videoDuration: draft.videoDuration } : {}),
     ...(draft.videoSource ? { videoSource: draft.videoSource } : {}),

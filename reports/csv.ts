@@ -65,6 +65,19 @@ export const CSV_COLUMNS = [
   'lateral_profile_columns_total',
   'algorithm_version',
   'measurement_version',
+  'camera_lens',
+  'camera_width_px',
+  'camera_height_px',
+  'nominal_fps',
+  'actual_fps',
+  'pitch_deg',
+  'roll_deg',
+  'angular_velocity_rms_deg_s',
+  'acceleration_rms_m_s2',
+  'image_mean_luminance',
+  'saturated_pixel_fraction',
+  'blur_score',
+  'glare_score',
   'notes',
 ] as const;
 
@@ -136,6 +149,23 @@ export function measurementRow(measurement: SavedMeasurement): Record<CsvColumn,
     lateral_profile_columns_total: measurement.lateralProfileColumnsTotal ?? null,
     algorithm_version: measurement.algorithmVersion,
     measurement_version: measurement.measurementVersion,
+    // "Lens" here is the best identity this stack actually has — a true
+    // lens id is not available on Android through expo-camera (see
+    // domain/sensor-snapshot.ts's CAMERA_CAPABILITY_MATRIX) — so this is the
+    // camera facing, never a fabricated lens name.
+    camera_lens: measurement.sensorSnapshot?.camera.facing ?? '',
+    camera_width_px: measurement.sensorSnapshot?.camera.sourceWidth ?? null,
+    camera_height_px: measurement.sensorSnapshot?.camera.sourceHeight ?? null,
+    nominal_fps: measurement.sensorSnapshot?.camera.nominalFps ?? null,
+    actual_fps: measurement.sensorSnapshot?.camera.actualFps ?? null,
+    pitch_deg: measurement.sensorSnapshot?.motion.pitchDeg ?? null,
+    roll_deg: measurement.sensorSnapshot?.motion.rollDeg ?? null,
+    angular_velocity_rms_deg_s: measurement.sensorSnapshot?.motion.angularVelocityRmsDegPerSec ?? null,
+    acceleration_rms_m_s2: measurement.sensorSnapshot?.motion.accelerationRmsMps2 ?? null,
+    image_mean_luminance: measurement.sensorSnapshot?.imageQuality?.meanLuminance ?? null,
+    saturated_pixel_fraction: measurement.sensorSnapshot?.imageQuality?.saturatedPixelFraction ?? null,
+    blur_score: measurement.sensorSnapshot?.imageQuality?.blurScore ?? null,
+    glare_score: measurement.sensorSnapshot?.imageQuality?.glareScore ?? null,
     notes: measurement.notes ?? '',
   };
 }

@@ -1,4 +1,5 @@
 import type { KnownRoiDimensions, WaterRoi } from '../domain/types';
+import type { ImageQualityMetrics } from './image-quality';
 
 /**
  * Thresholds of the reference implementation (specification §11.5). They are
@@ -242,6 +243,9 @@ export interface SsivQualitySummary {
   crossFlowRatio: number;
   /** crossFlowRatio past which the operator is warned the ROI may be misaligned. */
   crossFlowWarningRatio: number;
+  /** Image-quality metrics computed on the ROI's own bounding box of the first
+   * decoded frame — present whenever a clip has at least one frame pair. */
+  imageQuality?: ImageQualityMetrics;
 }
 
 export interface SsivAnalysis {

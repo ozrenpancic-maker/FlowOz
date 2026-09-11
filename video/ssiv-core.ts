@@ -1,6 +1,6 @@
 import { median, medianAbsoluteDeviation } from '../domain/linalg';
 import { err, ok, type Result } from '../domain/result';
-import type { NormalizedPoint } from '../domain/types';
+import type { NormalizedPoint, WaterRoi } from '../domain/types';
 import { ALGORITHM_VERSION } from '../domain/types';
 import { buildCalibration, metricDisplacement, type Homography } from './homography';
 import {
@@ -14,6 +14,8 @@ import {
 } from './ncc';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import { cameraDisplacementAt, stabiliseAll } from './stabilisation';
+import { computeImageQuality, cropFrame, refuseOnImageQuality, type ImageQualityMetrics } from './image-quality';
+import { roiPolygon, toPixels } from './roi';
 import {
   SSIV_THRESHOLDS,
   type EnsembleVector,
@@ -47,6 +49,23 @@ const EMPTY_REJECTIONS: Record<VectorRejectionReason, number> = {
 
 function bilinear(a: NormalizedPoint, b: NormalizedPoint, t: number): NormalizedPoint {
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+/** Axis-aligned pixel bounding box of the ROI polygon, clamped to the frame. */
+function roiPixelBoundingBox(
+  roi: WaterRoi,
+  frameWidth: number,
+  frameHeight: number
+): { x0: number; y0: number; x1: number; y1: number } {
+  const pixels = roiPolygon(roi).map((point) => toPixels(point, frameWidth, frameHeight));
+  const xs = pixels.map((p) => p.x);
+  const ys = pixels.map((p) => p.y);
+  return {
+    x0: Math.max(0, Math.min(...xs)),
+    y0: Math.max(0, Math.min(...ys)),
+    x1: Math.min(frameWidth, Math.max(...xs)),
+    y1: Math.min(frameHeight, Math.max(...ys)),
+  };
 }
 
 /** Interrogation grid inside the ROI quadrilateral, in normalised coordinates. */
@@ -488,6 +507,28 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     return err(ssivFailure('VIDEO_DECODE_FAILURE', 'decoded frame size does not match its buffer'));
   }
 
+  // Cheap frame-statistics gate, run once on the first frame, before any
+  // correlation work: obviously unusable footage (too dark, blown-out glare,
+  // no texture at all, too blurred to resolve) gets a specific, actionable
+  // reason immediately instead of failing later with the generic
+  // INSUFFICIENT_TEXTURE / INSUFFICIENT_VALID_VECTORS codes. Restricted to the
+  // ROI's own bounding box: a textured bank elsewhere in frame must not mask a
+  // genuinely glassy stretch of water, which is exactly the case this exists
+  // to catch.
+  let imageQuality: ImageQualityMetrics | undefined;
+  const firstPair = clip.pairs[0];
+  if (firstPair) {
+    const box = roiPixelBoundingBox(roi, firstPair.width, firstPair.height);
+    const region = cropFrame(firstPair.first, firstPair.width, firstPair.height, box);
+    if (region.width > 0 && region.height > 0) {
+      imageQuality = computeImageQuality(region.data, region.width, region.height);
+      const refusal = refuseOnImageQuality(imageQuality);
+      if (refusal) {
+        return err(ssivFailure(refusal, undefined, { imageQuality }));
+      }
+    }
+  }
+
   // Calibration comes first: without a VALID homography there is no metric
   // velocity to report, and the run stops before any correlation work.
   const calibration = buildCalibration(roi, knownDimensions, clip.width, clip.height);
@@ -810,6 +851,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     ensemblePairsUsed: ensembleRun.pairsUsed,
     crossFlowRatio,
     crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
+    ...(imageQuality ? { imageQuality } : {}),
   };
 
   return ok({

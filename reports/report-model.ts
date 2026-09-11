@@ -4,6 +4,8 @@ import { formatNumber } from '../domain/units';
 import { classifyAccuracy } from '../domain/gps';
 import { materialLabelKey } from '../domain/roughness';
 import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
+import { classifyStability } from '../domain/sensor-snapshot';
+import { gradeContrast, gradeExposure, gradeGlare, gradeSharpness } from '../video/image-quality';
 import type { AppSettings } from '../storage/settings';
 
 /**
@@ -254,6 +256,24 @@ export function buildReportModel(
         value: measurement.dataQuality.velocity.grade,
         qualityKey: measurement.dataQuality.velocity.reasonKey,
       },
+      ...(measurement.dataQuality.cameraStability
+        ? [
+            {
+              labelKey: 'report.cameraStabilityQuality',
+              value: measurement.dataQuality.cameraStability.grade,
+              qualityKey: measurement.dataQuality.cameraStability.reasonKey,
+            },
+          ]
+        : []),
+      ...(measurement.dataQuality.imageQuality
+        ? [
+            {
+              labelKey: 'report.imageQualityGrade',
+              value: measurement.dataQuality.imageQuality.grade,
+              qualityKey: measurement.dataQuality.imageQuality.reasonKey,
+            },
+          ]
+        : []),
     ],
   });
 
@@ -267,6 +287,63 @@ export function buildReportModel(
         { labelKey: 'report.gpsClass', value: classifyAccuracy(measurement.location.accuracy) },
       ],
     });
+  }
+
+  // Compact by design (Phase 16): only fields that were actually captured —
+  // never a row invented to look complete. Kept out of the main result page,
+  // a section of its own the operator can skip entirely via settings.
+  if (settings.pdfIncludeAcquisition && measurement.sensorSnapshot) {
+    const snapshot = measurement.sensorSnapshot;
+    const rows: ReportValue[] = [];
+    if (snapshot.device.model) rows.push({ labelKey: 'report.acquisitionDevice', value: snapshot.device.model });
+    if (snapshot.camera.facing) {
+      rows.push({ labelKey: 'report.acquisitionCamera', value: snapshot.camera.facing });
+    }
+    if (snapshot.camera.sourceWidth && snapshot.camera.sourceHeight) {
+      rows.push({
+        labelKey: 'report.acquisitionResolution',
+        value: `${snapshot.camera.sourceWidth}×${snapshot.camera.sourceHeight}`,
+      });
+    }
+    if (snapshot.camera.nominalFps !== undefined || snapshot.camera.actualFps !== undefined) {
+      rows.push({
+        labelKey: 'report.acquisitionFps',
+        value:
+          `${snapshot.camera.nominalFps !== undefined ? formatNumber(snapshot.camera.nominalFps, 1) : WITHHELD} nominal / ` +
+          `${snapshot.camera.actualFps !== undefined ? formatNumber(snapshot.camera.actualFps, 1) : WITHHELD} actual`,
+      });
+    }
+    if (snapshot.motion.pitchDeg !== undefined || snapshot.motion.rollDeg !== undefined) {
+      rows.push({
+        labelKey: 'report.acquisitionOrientation',
+        value:
+          `pitch ${snapshot.motion.pitchDeg !== undefined ? formatNumber(snapshot.motion.pitchDeg, 1) : WITHHELD}° / ` +
+          `roll ${snapshot.motion.rollDeg !== undefined ? formatNumber(snapshot.motion.rollDeg, 1) : WITHHELD}°`,
+      });
+    }
+    if (
+      snapshot.motion.angularVelocityRmsDegPerSec !== undefined ||
+      snapshot.motion.accelerationRmsMps2 !== undefined
+    ) {
+      rows.push({
+        labelKey: 'report.acquisitionStability',
+        value: classifyStability(snapshot.motion.angularVelocityRmsDegPerSec, snapshot.motion.accelerationRmsMps2),
+      });
+    }
+    if (snapshot.imageQuality) {
+      rows.push({
+        labelKey: 'report.acquisitionImageQuality',
+        value:
+          `exposure ${gradeExposure(snapshot.imageQuality)}, contrast ${gradeContrast(snapshot.imageQuality)}, ` +
+          `sharpness ${gradeSharpness(snapshot.imageQuality)}, glare ${gradeGlare(snapshot.imageQuality)}`,
+      });
+    }
+    if (measurement.location?.accuracy !== undefined) {
+      rows.push(numberRow('report.acquisitionGpsAccuracy', measurement.location.accuracy, 1, 'm'));
+    }
+    if (rows.length > 0) {
+      sections.push({ titleKey: 'report.section.acquisition', rows });
+    }
   }
 
   const warnings: ReportModel['warnings'] = [];

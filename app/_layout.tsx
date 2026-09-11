@@ -32,6 +32,7 @@ function Routes() {
         <Stack.Screen name="calibration" options={{ title: t('calibration.title') }} />
         <Stack.Screen name="validation" options={{ title: t('validation.title') }} />
         <Stack.Screen name="settings" options={{ title: t('settings.title') }} />
+        <Stack.Screen name="device-capabilities" options={{ title: t('capabilities.title') }} />
         <Stack.Screen name="live-flow" options={{ title: t('live.title') }} />
       </Stack>
     </MeasurementProvider>
