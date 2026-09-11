@@ -106,9 +106,15 @@ function measurePair(
   const second = prepareGrid(secondRaw);
   const window = SSIV_THRESHOLDS.interrogationWindowPx;
   const radius = SSIV_THRESHOLDS.searchRadiusPx;
-  // The reverse match only has to confirm a displacement we already know, so it
-  // searches a tight neighbourhood rather than the full window.
-  const reverseRadius = 3;
+  // The reverse search is centred where the forward match landed, so a
+  // consistent round-trip returns to the origin: reverse ≈ −forward. That
+  // expected offset can be as large as the forward displacement itself, so
+  // the reverse search needs the same radius as the forward one — a smaller
+  // fixed radius here would silently cap how much displacement the
+  // forward-backward check could ever confirm, rejecting any real
+  // displacement past that cap as FORWARD_BACKWARD_MISMATCH regardless of
+  // how consistent the two directions actually were.
+  const reverseRadius = radius;
   const vectors: RawVector[] = [];
 
   for (const node of interrogationGrid(roi)) {
@@ -316,7 +322,9 @@ function measureEnsemble(
 
   const window = SSIV_THRESHOLDS.interrogationWindowPx;
   const radius = SSIV_THRESHOLDS.searchRadiusPx;
-  const reverseRadius = 3;
+  // Same reasoning as measurePair's reverseRadius: the expected reverse
+  // offset (−forward) can be as large as the forward displacement itself.
+  const reverseRadius = radius;
   const span = 2 * radius + 1;
   const reverseSpan = 2 * reverseRadius + 1;
 

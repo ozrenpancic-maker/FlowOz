@@ -49,7 +49,8 @@ export function backgroundAnchors(roi: WaterRoi, width: number, height: number):
   const polygon = roiPolygon(roi);
   const anchors: { x: number; y: number }[] = [];
   // The correlation window plus its search radius has to fit inside the frame.
-  const margin = Math.ceil(SSIV_THRESHOLDS.interrogationWindowPx / 2) + SSIV_THRESHOLDS.searchRadiusPx;
+  const margin =
+    Math.ceil(SSIV_THRESHOLDS.interrogationWindowPx / 2) + SSIV_THRESHOLDS.stabilisationSearchRadiusPx;
 
   for (let row = 0; row < 4; row += 1) {
     for (let col = 0; col < 4; col += 1) {
@@ -149,7 +150,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
   for (const anchor of anchors) {
     const patch = extractPatch(first, anchor.x, anchor.y, SSIV_THRESHOLDS.interrogationWindowPx);
     if (!patch) continue;
-    const peak = findPeak(patch, second, anchor.x, anchor.y, SSIV_THRESHOLDS.searchRadiusPx);
+    const peak = findPeak(patch, second, anchor.x, anchor.y, SSIV_THRESHOLDS.stabilisationSearchRadiusPx);
     if (!peak) continue;
     correlations.push(peak.correlation);
     if (peak.correlation < SSIV_THRESHOLDS.minStabilisationCorrelation || peak.atSearchEdge) continue;

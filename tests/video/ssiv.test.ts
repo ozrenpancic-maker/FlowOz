@@ -242,6 +242,37 @@ describe('SSIV analysis of a known displacement', () => {
     expect(result.value.quality.stablePairs).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minStablePairs);
   });
 
+  it('resolves a fast displacement that would have exceeded the old, narrower search radius', () => {
+    // 18px exceeds the pre-fix searchRadiusPx of 12 (see video/types.ts) —
+    // this shift would previously have been rejected as SEARCH_WINDOW_EDGE
+    // (or scored a weak correlation), leaving only near-zero noise vectors to
+    // survive and reporting a falsely tiny velocity, exactly the field bug
+    // that motivated widening the water-interrogation search radius to 24.
+    const shiftY = 18;
+    const result = analyse({ clip: makeClip({ shiftY }), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const expectedVelocity = (shiftY * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
+    expect(result.value.surfaceVelocity).toBeCloseTo(expectedVelocity, 1);
+    expect(result.value.quality.acceptedVectors).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minAcceptedVectors);
+    // No SEARCH_WINDOW_EDGE rejections — the true displacement now fits.
+    expect(result.value.quality.rejectionsByReason.SEARCH_WINDOW_EDGE).toBe(0);
+  });
+
+  it('still stabilises the camera on a realistically tight ROI once the water search radius is widened', () => {
+    // The water-interrogation and stabilisation-anchor searches must stay on
+    // separate radii (SSIV_THRESHOLDS.searchRadiusPx vs
+    // stabilisationSearchRadiusPx): sharing one would grow the anchor margin
+    // along with the water radius and starve stabilisation of anchors on any
+    // ROI that doesn't leave a huge background border — exactly TEST_ROI's
+    // shape (60% of the frame width).
+    const result = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.stablePairs).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minStablePairs);
+  });
+
   it('is repeatable — the same clip gives exactly the same number', () => {
     const first = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
     const second = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });

@@ -50,9 +50,32 @@ export const SSIV_THRESHOLDS = Object.freeze({
   maxFrameDeltaDeviationFraction: 0.5,
   /** Smallest usable ROI, as a fraction of the frame area. */
   minRoiAreaFraction: 0.02,
-  /** Interrogation window and search radius, in working-resolution pixels. */
+  /** Interrogation window, in working-resolution pixels. */
   interrogationWindowPx: 24,
-  searchRadiusPx: 12,
+  /**
+   * Search radius for the water interrogation grid, in working-resolution
+   * pixels. Widened from 12 to 24 after field testing on a real flowing
+   * channel: at 12px, the true displacement of anything faster than a slow
+   * trickle landed outside the search window and was rejected
+   * (SEARCH_WINDOW_EDGE) or scored a weak correlation, leaving only near-zero
+   * noise vectors to survive — a systematic, large underestimate, not a
+   * random one. 24px raises the fastest resolvable surface speed without
+   * shrinking the frame-pair spacing (which would have traded away
+   * sensitivity to slow flows instead).
+   *
+   * Deliberately NOT shared with the background-anchor stabilisation search
+   * (see stabilisationSearchRadiusPx) — widening this one alone regressed
+   * stabilisation on realistically-sized ROIs, because the anchor margin
+   * (interrogationWindowPx/2 + radius) grows with it and eats the background
+   * strip outside the ROI. Camera shake between two frames is a much smaller,
+   * unrelated displacement than the water's own motion, so the two radii have
+   * no reason to match.
+   */
+  searchRadiusPx: 24,
+  /** Search radius for background-anchor camera-motion tracking, in
+   * working-resolution pixels — see searchRadiusPx's doc comment for why this
+   * is a separate, smaller value. Unchanged from the original tuning. */
+  stabilisationSearchRadiusPx: 12,
   /**
    * crossFlowRatio past which the ROI's downstream edge is probably not
    * parallel to the actual flow — see SsivQualitySummary.crossFlowRatio.
