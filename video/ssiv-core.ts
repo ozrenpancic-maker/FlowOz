@@ -822,11 +822,23 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const surfaceVelocity =
     velocitySource === 'ensemble' ? (ensembleVelocity as number) : (instantaneousVelocity ?? NaN);
   if (!Number.isFinite(surfaceVelocity) || surfaceVelocity <= 0) {
+    // Distinct from the vector-count check above: enough vectors passed every
+    // quality filter here, but they average out to zero or upstream motion —
+    // a different real cause (no net downstream flow, or the ROI's flow
+    // direction not matching the actual flow) than "too few tracked points",
+    // so the detail says exactly that instead of repeating "median velocity".
     return err(
-      ssivFailure('INSUFFICIENT_VALID_VECTORS', `median velocity ${surfaceVelocity}`, {
-        totalVectors: vectors.length,
-        acceptedVectors: accepted.length,
-      })
+      ssivFailure(
+        'INSUFFICIENT_VALID_VECTORS',
+        `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
+          `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the median streamwise ` +
+          `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s — ` +
+          'no net downstream motion was measured',
+        {
+          totalVectors: vectors.length,
+          acceptedVectors: accepted.length,
+        }
+      )
     );
   }
 

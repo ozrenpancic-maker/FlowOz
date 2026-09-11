@@ -181,7 +181,10 @@ export const en = {
   'ssiv.action.INSUFFICIENT_TEXTURE':
     'Record visible particles, foam, reflections or other surface detail.',
   'ssiv.action.INSUFFICIENT_VALID_VECTORS':
-    'Adjust the ROI and record a clearer, steadier clip.',
+    'Adjust the ROI and record a clearer, steadier clip. If the technical detail shows enough ' +
+    'vectors passed but the velocity was zero or negative, no net downstream flow was measured — ' +
+    'check the ROI’s flow-direction setting (try REVERSED) and confirm the water is actually ' +
+    'flowing across the section.',
   'ssiv.action.INVALID_ROI_CALIBRATION':
     'Correct the ROI points and the known width and length.',
   'ssiv.action.VIDEO_DECODE_FAILURE': 'Record or import another supported video.',

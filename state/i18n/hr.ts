@@ -179,7 +179,11 @@ export const hr: Record<keyof typeof en, string> = {
   'ssiv.error.MOTION_BLUR_TOO_HIGH': 'PREVELIKO ZAMUĆENJE',
   'ssiv.action.INSUFFICIENT_TEXTURE':
     'Snimite vidljive čestice, pjenu, odsjaje ili druge površinske detalje.',
-  'ssiv.action.INSUFFICIENT_VALID_VECTORS': 'Prilagodite ROI i snimite jasniji, stabilniji video.',
+  'ssiv.action.INSUFFICIENT_VALID_VECTORS':
+    'Prilagodite ROI i snimite jasniji, stabilniji video. Ako tehnički detalj pokazuje da je ' +
+    'dovoljno vektora prihvaćeno ali je brzina nula ili negativna, nije izmjeren neto tok ' +
+    'nizvodno — provjerite postavku smjera toka na ROI-ju (probajte OBRNUTO) i uvjerite se da ' +
+    'voda stvarno teče kroz presjek.',
   'ssiv.action.INVALID_ROI_CALIBRATION': 'Ispravite ROI točke te poznatu širinu i duljinu.',
   'ssiv.action.VIDEO_DECODE_FAILURE': 'Snimite ili uvezite drugi podržani video.',
   'ssiv.action.UNSTABLE_CAMERA': 'Učvrstite telefon i ostavite stacionarne rubove scene u kadru.',
