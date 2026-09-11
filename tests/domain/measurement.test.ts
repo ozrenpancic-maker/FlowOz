@@ -1,5 +1,6 @@
 import { buildSavedMeasurement, calculate } from '../../domain/measurement';
 import { createDisplayId, createId } from '../../domain/ids';
+import { fitEllipse } from '../../domain/ellipse';
 import { UNCERTAINTY_WITHHELD, assess, gradeGeometry, gradeLevel, gradeVelocity, worstGrade } from '../../domain/quality';
 import { retryDraftFrom } from '../../domain/draft';
 import { ALGORITHM_VERSION, MEASUREMENT_VERSION } from '../../domain/types';
@@ -47,6 +48,8 @@ function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
       ensembleNodes: 20,
       acceptedEnsembleNodes: 16,
       ensemblePairsUsed: 6,
+      crossFlowRatio: 0,
+      crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
     },
     thresholds: SSIV_THRESHOLDS,
     algorithmVersion: ALGORITHM_VERSION,
@@ -138,6 +141,44 @@ describe('calculate', () => {
     expect(result.value.lateralProfile).toBeUndefined();
     // The single-point result is entirely unaffected by the missing cross-check.
     expect(result.value.flowM3s).toBeGreaterThan(0);
+  });
+
+  it('grades a camera-assisted level B when a real ellipse fit is on the draft', () => {
+    // 12 points on a clean circle: fitEllipse should return a tight residual
+    // and the full point count, not the old hardcoded stub.
+    const points = Array.from({ length: 12 }, (_, i) => {
+      const angle = (i / 12) * 2 * Math.PI;
+      return { x: 100 + 80 * Math.cos(angle), y: 100 + 60 * Math.sin(angle) };
+    });
+    const fit = fitEllipse(points);
+    expect(fit.ok).toBe(true);
+    if (!fit.ok) return;
+
+    const result = calculate(
+      makeDraft({
+        levelMethod: 'camera-assisted',
+        cameraLevelFit: fit.value,
+        cameraLevelRimPoints: points,
+        cameraLevelWaterlinePoints: [
+          { x: 100, y: 160 },
+          { x: 180, y: 100 },
+        ],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.level.grade).toBe('B');
+    expect(result.value.quality.level.reasonKey).toBe('quality.level.cameraNotMetrologicallyValidated');
+  });
+
+  it('falls back to the weak camera-assisted grade when the draft carries no fit evidence', () => {
+    // A depth carried over from an older record, or any other path that never
+    // ran the fit — must degrade honestly rather than assume a good fit.
+    const result = calculate(makeDraft({ levelMethod: 'camera-assisted' }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.quality.level.grade).toBe('C');
+    expect(result.value.quality.level.reasonKey).toBe('quality.level.cameraWeakFit');
   });
 
   it('blocks on a physically impossible value before touching the geometry', () => {
@@ -245,6 +286,37 @@ describe('saved measurement assembly', () => {
     expect(measurement.raw.draft.depth).toBe(0.15);
     expect(measurement.measurementVersion).toBe(MEASUREMENT_VERSION);
     expect(measurement.algorithmVersion).toBe(ALGORITHM_VERSION);
+  });
+
+  it('persists the camera-level rim points, waterline points and ellipse fit onto the saved record', () => {
+    const points = Array.from({ length: 12 }, (_, i) => {
+      const angle = (i / 12) * 2 * Math.PI;
+      return { x: 100 + 80 * Math.cos(angle), y: 100 + 60 * Math.sin(angle) };
+    });
+    const fit = fitEllipse(points);
+    expect(fit.ok).toBe(true);
+    if (!fit.ok) return;
+    const waterlinePoints = [
+      { x: 100, y: 160 },
+      { x: 180, y: 100 },
+    ];
+
+    const draft = makeDraft({
+      levelMethod: 'camera-assisted',
+      cameraLevelFit: fit.value,
+      cameraLevelRimPoints: points,
+      cameraLevelWaterlinePoints: waterlinePoints,
+    });
+    const outcome = calculate(draft);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    const measurement = buildSavedMeasurement('m-1', 'FV-1', draft, outcome.value);
+    expect(measurement.cameraLevelFit).toEqual(fit.value);
+    expect(measurement.cameraLevelRimPoints).toEqual(points);
+    expect(measurement.cameraLevelWaterlinePoints).toEqual(waterlinePoints);
+    // And it is part of the immutable evidence snapshot too.
+    expect(measurement.raw.draft.cameraLevelFit).toEqual(fit.value);
   });
 
   it('persists the lateral-profile cross-check onto the saved record', () => {

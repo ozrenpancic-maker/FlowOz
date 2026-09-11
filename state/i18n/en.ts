@@ -142,6 +142,8 @@ export const en = {
   'video.rejectedVectors': 'Rejected vectors',
   'video.acceptanceRatio': 'Acceptance',
   'video.cameraCompensation': 'Camera compensation',
+  'video.crossFlowWarning':
+    'Cross-flow is large relative to the downstream velocity. This usually means the ROI\'s downstream edge is not parallel to the actual flow — check the ROI drawing before trusting this result. Ratio (lateral/streamwise):',
   'video.stablePairs': 'Stabilised frame pairs',
   'video.alphaUsed': 'Alpha used',
   'video.viewVectors': 'VIEW VECTORS / ANALYSIS',

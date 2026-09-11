@@ -42,6 +42,8 @@ function baseAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
       ensembleNodes: 0,
       acceptedEnsembleNodes: 0,
       ensemblePairsUsed: 6,
+      crossFlowRatio: 0,
+      crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
     },
     thresholds: SSIV_THRESHOLDS,
     algorithmVersion: ALGORITHM_VERSION,

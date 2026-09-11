@@ -39,6 +39,7 @@ export default function LevelCameraScreen() {
   const [rimPoints, setRimPoints] = useState<Point2D[]>([]);
   const [waterline, setWaterline] = useState<Point2D[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [photoSize, setPhotoSize] = useState<{ width: number; height: number } | null>(null);
   const [gravity, setGravity] = useState<{ x: number; y: number; z: number } | null>(null);
   const [estimate, setEstimate] = useState<ReturnType<typeof estimateDepthFromRim> | null>(null);
 
@@ -50,6 +51,34 @@ export default function LevelCameraScreen() {
     const subscription = Accelerometer.addListener((reading) => setGravity(reading));
     return () => subscription.remove();
   }, []);
+
+  // The frame that rim/waterline taps are read against must show the photo's
+  // real aspect ratio — a mismatched frame would let `resizeMode="cover"` crop
+  // away part of the rim, making it untappable, and would misalign display
+  // pixels against the photo's own pixels for anything later drawn on the
+  // original image.
+  useEffect(() => {
+    if (!photoUri) {
+      setPhotoSize(null);
+      return;
+    }
+    let cancelled = false;
+    Image.getSize(
+      photoUri,
+      (width, height) => {
+        if (!cancelled) setPhotoSize({ width, height });
+      },
+      () => {
+        if (!cancelled) setPhotoSize(null);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [photoUri]);
+
+  const photoAspectRatio =
+    photoSize && photoSize.width > 0 && photoSize.height > 0 ? photoSize.width / photoSize.height : 3 / 4;
 
   const openCamera = async () => {
     setCaptureError(null);
@@ -134,6 +163,9 @@ export default function LevelCameraScreen() {
       depth: estimate.value.depth,
       levelMethod: 'camera-assisted',
       ...(gravity ? { gravity } : {}),
+      cameraLevelRimPoints: rimPoints,
+      cameraLevelWaterlinePoints: waterline,
+      cameraLevelFit: estimate.value.fit,
     });
     router.back();
   };
@@ -214,7 +246,7 @@ export default function LevelCameraScreen() {
         </Card>
       ) : (
         <>
-          <View style={styles.frame} onLayout={onLayout}>
+          <View style={[styles.frame, { aspectRatio: photoAspectRatio }]} onLayout={onLayout}>
             <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
             <Pressable
               style={StyleSheet.absoluteFill}

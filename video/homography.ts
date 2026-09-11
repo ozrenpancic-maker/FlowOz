@@ -20,8 +20,16 @@ export interface Homography {
   /** Metres → image pixels, row-major 3×3. */
   inverse: number[];
   determinant: number;
-  /** Largest round-trip error over the four corners [px]. */
-  closureErrorPx: number;
+  /**
+   * Largest image→world→image round-trip error over the four corners [px].
+   * This is a solver self-consistency check, not a metrological one: the same
+   * four correspondences both define the map and are used to check it, so a
+   * small value only proves the linear solve was well-conditioned. It says
+   * nothing about how well those four points were actually placed on the true
+   * water edges, camera lens distortion, or perspective — none of which this
+   * homography model accounts for.
+   */
+  numericalClosureErrorPx: number;
   status: CalibrationStatus;
   problems: RoiProblem[];
 }
@@ -154,7 +162,10 @@ export function buildCalibration(
   }
 
   // Numerical closure: image → world → image must return the same corners.
-  let closureErrorPx = 0;
+  // This only catches a badly conditioned solve (e.g. near-collinear points);
+  // it cannot detect a homography built from four confidently, precisely
+  // wrong clicks, which would close perfectly and still be wrong.
+  let numericalClosureErrorPx = 0;
   for (const point of imagePoints) {
     const world = applyHomography(forward, point.x, point.y);
     if (!world) {
@@ -174,21 +185,27 @@ export function buildCalibration(
         problems,
       });
     }
-    closureErrorPx = Math.max(closureErrorPx, Math.hypot(back.x - point.x, back.y - point.y));
+    numericalClosureErrorPx = Math.max(
+      numericalClosureErrorPx,
+      Math.hypot(back.x - point.x, back.y - point.y)
+    );
   }
 
-  if (!Number.isFinite(closureErrorPx) || closureErrorPx > MAX_CLOSURE_ERROR_PX) {
+  if (!Number.isFinite(numericalClosureErrorPx) || numericalClosureErrorPx > MAX_CLOSURE_ERROR_PX) {
     return err({
       code: 'CLOSURE_CHECK_FAILED',
       messageKey: 'homography.error.CLOSURE_CHECK_FAILED',
-      detail: `${closureErrorPx.toFixed(4)} px > ${MAX_CLOSURE_ERROR_PX} px`,
+      detail: `${numericalClosureErrorPx.toFixed(4)} px > ${MAX_CLOSURE_ERROR_PX} px`,
       problems,
     });
   }
 
-  const status: CalibrationStatus = closureErrorPx > POOR_CLOSURE_ERROR_PX ? 'POOR' : 'VALID';
+  // VALID/POOR describes the numerical conditioning of this solve, not the
+  // real-world accuracy of the four points the operator clicked — see
+  // numericalClosureErrorPx's own doc comment.
+  const status: CalibrationStatus = numericalClosureErrorPx > POOR_CLOSURE_ERROR_PX ? 'POOR' : 'VALID';
 
-  return ok({ forward, inverse, determinant, closureErrorPx, status, problems });
+  return ok({ forward, inverse, determinant, numericalClosureErrorPx, status, problems });
 }
 
 /**

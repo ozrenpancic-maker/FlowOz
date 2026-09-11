@@ -1,4 +1,5 @@
 import type { LengthUnit, SlopeUnit } from './units';
+import type { EllipseFit, Point2D } from './ellipse';
 
 export type { LengthUnit };
 
@@ -166,6 +167,13 @@ export interface MeasurementDraft {
   photoUri?: string;
   gravity?: GravityVector;
   orientation?: string;
+  /** Points the operator marked on the rim, in the photo preview's own pixels. */
+  cameraLevelRimPoints?: Point2D[];
+  /** The two water-line points, same coordinate space as cameraLevelRimPoints. */
+  cameraLevelWaterlinePoints?: Point2D[];
+  /** The ellipse actually fitted to cameraLevelRimPoints — the real evidence
+   * behind the camera-assisted level grade, not a placeholder. */
+  cameraLevelFit?: EllipseFit;
   /** Video velocity evidence. */
   videoUri?: string;
   videoDuration?: number;

@@ -573,7 +573,9 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
         continue;
       }
       node.displacementM = metric.distanceM;
-      node.velocityMs = metric.distanceM / node.frameDeltaS;
+      node.velocityMs = metric.dyM / node.frameDeltaS;
+      node.lateralVelocityMs = metric.dxM / node.frameDeltaS;
+      node.speedMs = metric.distanceM / node.frameDeltaS;
       node.accepted = true;
       ensembleVelocities.push(node.velocityMs);
     }
@@ -697,7 +699,9 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
       continue;
     }
     vector.displacementM = metric.distanceM;
-    vector.velocityMs = metric.distanceM / pair.frameDeltaS;
+    vector.velocityMs = metric.dyM / pair.frameDeltaS;
+    vector.lateralVelocityMs = metric.dxM / pair.frameDeltaS;
+    vector.speedMs = metric.distanceM / pair.frameDeltaS;
     velocities.push(vector.velocityMs);
     stillAccepted.push(vector);
   }
@@ -717,23 +721,6 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
       rejectionsByReason[vector.rejectionReason] += 1;
     }
   }
-
-  const quality: SsivQualitySummary = {
-    totalVectors: vectors.length,
-    acceptedVectors: accepted.length,
-    rejectedVectors: vectors.length - accepted.length,
-    acceptanceRatio: vectors.length > 0 ? accepted.length / vectors.length : 0,
-    rejectionsByReason,
-    stablePairs: stablePairs.length,
-    totalPairs: clip.pairs.length,
-    medianCorrelation,
-    cameraCompensationPx: median(
-      stablePairs.map((entry) => Math.hypot(entry.shiftXPx, entry.shiftYPx))
-    ),
-    ensembleNodes: ensemble.length,
-    acceptedEnsembleNodes: acceptedEnsemble.length,
-    ensemblePairsUsed: ensembleRun.pairsUsed,
-  };
 
   const ensembleUsable = acceptedEnsemble.length >= SSIV_THRESHOLDS.minAcceptedEnsembleNodes;
   const instantaneousUsable = accepted.length >= SSIV_THRESHOLDS.minAcceptedVectors;
@@ -791,6 +778,39 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   }
 
   const frameDeltas = clip.pairs.map((pair) => pair.frameDeltaS);
+
+  // Cross-flow ratio is measured on whichever set actually fed
+  // surfaceVelocity, so it reflects the reported number rather than the
+  // other estimate that was passed over.
+  const sourceForCrossFlow = velocitySource === 'ensemble' ? acceptedEnsemble : accepted;
+  const streamwiseAbs = sourceForCrossFlow
+    .map((entry) => Math.abs(entry.velocityMs ?? NaN))
+    .filter((value) => Number.isFinite(value));
+  const lateralAbs = sourceForCrossFlow
+    .map((entry) => Math.abs(entry.lateralVelocityMs ?? NaN))
+    .filter((value) => Number.isFinite(value));
+  const medianStreamwiseAbs = streamwiseAbs.length > 0 ? median(streamwiseAbs) : 0;
+  const medianLateralAbs = lateralAbs.length > 0 ? median(lateralAbs) : 0;
+  const crossFlowRatio = medianStreamwiseAbs > 0 ? medianLateralAbs / medianStreamwiseAbs : 0;
+
+  const quality: SsivQualitySummary = {
+    totalVectors: vectors.length,
+    acceptedVectors: accepted.length,
+    rejectedVectors: vectors.length - accepted.length,
+    acceptanceRatio: vectors.length > 0 ? accepted.length / vectors.length : 0,
+    rejectionsByReason,
+    stablePairs: stablePairs.length,
+    totalPairs: clip.pairs.length,
+    medianCorrelation,
+    cameraCompensationPx: median(
+      stablePairs.map((entry) => Math.hypot(entry.shiftXPx, entry.shiftYPx))
+    ),
+    ensembleNodes: ensemble.length,
+    acceptedEnsembleNodes: acceptedEnsemble.length,
+    ensemblePairsUsed: ensembleRun.pairsUsed,
+    crossFlowRatio,
+    crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
+  };
 
   return ok({
     surfaceVelocity,

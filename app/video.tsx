@@ -3,6 +3,7 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { videoFlow } from '../domain/hydraulics';
@@ -78,6 +79,17 @@ export default function VideoVelocityScreen() {
     instance.loop = true;
     instance.muted = true;
   });
+
+  // The ROI is drawn on this preview and its normalised coordinates are later
+  // read straight into the decoder's own frame — so the preview must show the
+  // video's real aspect ratio. A default 16:9 box would make `contentFit="cover"`
+  // crop a differently-shaped source, and every point the operator taps would
+  // land on the wrong part of the frame the SSIV pipeline actually decodes.
+  const { videoTrack } = useEvent(player, 'videoTrackChange', { videoTrack: player.videoTrack });
+  const roiAspectRatio =
+    videoTrack && videoTrack.size.width > 0 && videoTrack.size.height > 0
+      ? videoTrack.size.width / videoTrack.size.height
+      : 16 / 9;
 
   const widthM = parseNumericInput(widthText);
   const lengthM = parseNumericInput(lengthText);
@@ -386,7 +398,7 @@ export default function VideoVelocityScreen() {
 
           <SectionTitle>{t('video.roiTitle')}</SectionTitle>
           <Muted>{t('video.roiHint')}</Muted>
-          <RoiEditor roi={roi} onChange={setRoi} pointLabel={t('video.roiPoint')}>
+          <RoiEditor roi={roi} onChange={setRoi} pointLabel={t('video.roiPoint')} aspectRatio={roiAspectRatio}>
             <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="cover" />
           </RoiEditor>
 
@@ -507,6 +519,11 @@ export default function VideoVelocityScreen() {
             value={formatNumber(analysis.quality.cameraCompensationPx, 2)}
             unit="px"
           />
+          {analysis.quality.crossFlowRatio > analysis.quality.crossFlowWarningRatio ? (
+            <Note tone="warning">
+              {t('video.crossFlowWarning')} ({formatNumber(analysis.quality.crossFlowRatio, 2)})
+            </Note>
+          ) : null}
           <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} tone="pass" />
           <ValueRow
             label={t('video.alphaUsed')}

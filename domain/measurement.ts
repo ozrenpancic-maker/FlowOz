@@ -52,6 +52,9 @@ export interface SavedMeasurement {
   photoUri?: string;
   gravity?: GravityVector;
   orientation?: string;
+  cameraLevelRimPoints?: MeasurementDraft['cameraLevelRimPoints'];
+  cameraLevelWaterlinePoints?: MeasurementDraft['cameraLevelWaterlinePoints'];
+  cameraLevelFit?: MeasurementDraft['cameraLevelFit'];
   videoUri?: string;
   videoDuration?: number;
   videoSource?: MeasurementDraft['videoSource'];
@@ -359,7 +362,17 @@ export function calculate(
       provenance: depthProvenance,
       depthValid: true,
       ...(draft.levelMethod === 'camera-assisted'
-        ? { cameraAssisted: { residualPx: NaN, pointCount: 0 } }
+        ? {
+            cameraAssisted: draft.cameraLevelFit
+              ? {
+                  residualPx: draft.cameraLevelFit.residual,
+                  pointCount: draft.cameraLevelFit.inlierCount,
+                }
+              // No fit evidence on the draft (e.g. a depth carried over from
+              // an older record) — grade it as the weak, unverifiable case
+              // rather than assume a fit that was never actually run.
+              : { residualPx: NaN, pointCount: 0 },
+          }
         : {}),
     }),
     gradeVelocity({
@@ -429,6 +442,11 @@ export function buildSavedMeasurement(
     ...(draft.photoUri ? { photoUri: draft.photoUri } : {}),
     ...(draft.gravity ? { gravity: draft.gravity } : {}),
     ...(draft.orientation ? { orientation: draft.orientation } : {}),
+    ...(draft.cameraLevelRimPoints ? { cameraLevelRimPoints: draft.cameraLevelRimPoints } : {}),
+    ...(draft.cameraLevelWaterlinePoints
+      ? { cameraLevelWaterlinePoints: draft.cameraLevelWaterlinePoints }
+      : {}),
+    ...(draft.cameraLevelFit ? { cameraLevelFit: draft.cameraLevelFit } : {}),
     ...(draft.videoUri ? { videoUri: draft.videoUri } : {}),
     ...(draft.videoDuration !== undefined ? { videoDuration: draft.videoDuration } : {}),
     ...(draft.videoSource ? { videoSource: draft.videoSource } : {}),

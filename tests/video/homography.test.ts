@@ -111,7 +111,7 @@ describe('homography', () => {
     const result = buildCalibration(rectangleRoi, dimensions, FRAME_W, FRAME_H);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.closureErrorPx).toBeLessThan(0.05);
+      expect(result.value.numericalClosureErrorPx).toBeLessThan(0.05);
       expect(Number.isFinite(result.value.determinant)).toBe(true);
       expect(Math.abs(result.value.determinant)).toBeGreaterThan(0);
     }

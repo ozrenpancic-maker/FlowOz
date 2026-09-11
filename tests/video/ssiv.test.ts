@@ -80,21 +80,43 @@ describe('flow direction', () => {
     expect(Number.isNaN(robustDirection([], []))).toBe(true);
   });
 
-  it('measures the same speed whichever way the flow runs', () => {
-    // Across the flow the ROI is 0.4 · 240 px = 96 px ↔ 2 m, so a 3 px shift is
-    // 3 · 2/96 = 0.0625 m, which over 0.1 s is 0.625 m/s.
-    const across = (3 * (TEST_DIMENSIONS.widthM / 96)) / 0.1;
+  it('reports a purely cross-stream displacement as no measurable discharge, not as a velocity', () => {
+    // A displacement with no component along the ROI's downstream axis (world
+    // Y, edge 1-2 towards edge 4-3) carries no water across the measurement
+    // section — it must not be reported as if it were a real surface speed.
     for (const shiftX of [3, -3]) {
       const result = analyse({
         clip: makeClip({ shiftX, shiftY: 0 }),
         roi: TEST_ROI,
         knownDimensions: TEST_DIMENSIONS,
       });
-      expect(result.ok).toBe(true);
-      if (!result.ok) continue;
-      expect(result.value.surfaceVelocity).toBeCloseTo(across, 1);
-      expect(result.value.quality.rejectionsByReason.DIRECTIONAL_OUTLIER).toBe(0);
+      expect(result.ok).toBe(false);
     }
+  });
+
+  it('uses only the streamwise component for surfaceVelocity, not the displacement magnitude', () => {
+    // Across the flow: ROI is 0.4 · 240 px = 96 px ↔ 2 m, so a 4 px shift is
+    // 4 · 2/96 = 0.0833 m, i.e. 0.8333 m/s — purely diagnostic (lateral).
+    // Along the flow: ROI is 0.6 · 135 px = 81 px ↔ 3 m, so a 3 px shift is
+    // 3 · 3/81 = 0.1111 m, i.e. 1.1111 m/s — this is what Q must be built on.
+    const lateral = (4 * (TEST_DIMENSIONS.widthM / 96)) / 0.1;
+    const streamwise = (3 * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
+    const magnitude = Math.hypot(lateral, streamwise);
+
+    const result = analyse({
+      clip: makeClip({ shiftX: 4, shiftY: 3 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
+    expect(result.value.surfaceVelocity).not.toBeCloseTo(magnitude, 1);
+    expect(result.value.quality.crossFlowRatio).toBeGreaterThan(SSIV_THRESHOLDS.crossFlowWarningRatio);
+
+    const sampled = result.value.vectors.find((vector) => vector.accepted);
+    expect(sampled?.lateralVelocityMs).toBeDefined();
+    expect(Math.abs(sampled?.lateralVelocityMs ?? 0)).toBeGreaterThan(0);
   });
 });
 
@@ -425,6 +447,8 @@ describe('raw vector metadata contract', () => {
       if (vector.accepted) {
         // An accepted vector carries its metric conversion.
         expect(typeof vector.velocityMs).toBe('number');
+        expect(typeof vector.lateralVelocityMs).toBe('number');
+        expect(typeof vector.speedMs).toBe('number');
         expect(typeof vector.displacementM).toBe('number');
         expect(vector.rejectionReason).toBeUndefined();
       } else {

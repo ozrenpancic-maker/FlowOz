@@ -141,6 +141,8 @@ export const hr: Record<keyof typeof en, string> = {
   'video.rejectedVectors': 'Odbačeni vektori',
   'video.acceptanceRatio': 'Prihvat',
   'video.cameraCompensation': 'Kompenzacija kamere',
+  'video.crossFlowWarning':
+    'Poprečna komponenta protoka je velika u odnosu na nizvodnu brzinu. To obično znači da nizvodni rub ROI-a nije paralelan sa stvarnim tokom — provjerite crtež ROI-a prije nego povjerujete ovom rezultatu. Omjer (poprečno/nizvodno):',
   'video.stablePairs': 'Stabilizirani parovi kadrova',
   'video.alphaUsed': 'Korišteni alpha',
   'video.viewVectors': 'PRIKAŽI VEKTORE / ANALIZU',

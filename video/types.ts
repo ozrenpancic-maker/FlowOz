@@ -52,6 +52,11 @@ export const SSIV_THRESHOLDS = Object.freeze({
   /** Interrogation window and search radius, in working-resolution pixels. */
   interrogationWindowPx: 24,
   searchRadiusPx: 12,
+  /**
+   * crossFlowRatio past which the ROI's downstream edge is probably not
+   * parallel to the actual flow — see SsivQualitySummary.crossFlowRatio.
+   */
+  crossFlowWarningRatio: 0.5,
 } as const);
 
 export type CalibrationStatus = 'VALID' | 'POOR' | 'INVALID';
@@ -90,10 +95,20 @@ export interface SsivVector {
   uncertaintyPx: number;
   forwardBackwardPx: number;
   spatialCoherence: number;
-  /** Displacement mapped through the homography [m]. */
+  /** Total displacement mapped through the homography [m], diagnostic only. */
   displacementM?: number;
-  /** Metric speed = displacementM / frameDeltaS [m/s]. */
+  /**
+   * Signed velocity along the flow axis [m/s] — positive is downstream, the
+   * direction the ROI's own edges define (edge 1-2 towards edge 4-3). This is
+   * what discharge is built from: water crossing the measurement section is
+   * what Q counts, and a vector's cross-stream component contributes nothing
+   * to that regardless of how large it is.
+   */
   velocityMs?: number;
+  /** Signed cross-stream velocity [m/s], diagnostic only — see velocityMs. */
+  lateralVelocityMs?: number;
+  /** Total surface speed = displacementM / frameDeltaS [m/s], diagnostic only. */
+  speedMs?: number;
   accepted: boolean;
   rejectionReason?: VectorRejectionReason;
 }
@@ -134,8 +149,14 @@ export interface EnsembleVector {
   pairsUsed: number;
   /** Mean spacing of those pairs [s], the time the displacement covers. */
   frameDeltaS: number;
+  /** Total displacement mapped through the homography [m], diagnostic only. */
   displacementM?: number;
+  /** Signed velocity along the flow axis [m/s] — see SsivVector.velocityMs. */
   velocityMs?: number;
+  /** Signed cross-stream velocity [m/s], diagnostic only. */
+  lateralVelocityMs?: number;
+  /** Total surface speed [m/s], diagnostic only. */
+  speedMs?: number;
   accepted: boolean;
   rejectionReason?: VectorRejectionReason;
 }
@@ -210,6 +231,17 @@ export interface SsivQualitySummary {
   ensembleNodes: number;
   acceptedEnsembleNodes: number;
   ensemblePairsUsed: number;
+  /**
+   * Median |lateral| / median |streamwise| over the accepted vectors that
+   * fed the reported velocity. A high ratio means the water is genuinely
+   * moving across the section as much as along it, or — far more likely in
+   * practice — the ROI's downstream edge was not drawn parallel to the
+   * actual flow, so a real streamwise speed is mixed with a spurious
+   * "sideways" reading that a magnitude-based velocity would have hidden.
+   */
+  crossFlowRatio: number;
+  /** crossFlowRatio past which the operator is warned the ROI may be misaligned. */
+  crossFlowWarningRatio: number;
 }
 
 export interface SsivAnalysis {
