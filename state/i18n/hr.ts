@@ -114,7 +114,9 @@ export const hr: Record<keyof typeof en, string> = {
   'video.videoStored': 'Originalni video trajno je spremljen na ovaj uređaj.',
   'video.storedSize': 'Veličina zapisa',
   'video.roiTitle': 'ROI · točke 1–4',
-  'video.roiHint': 'Odaberite točku pa dodirnite kadar da je pomaknete. Tok ide od ruba 1–2 prema 4–3.',
+  'video.roiHint':
+    'Odaberite točku pa dodirnite kadar da je pomaknete. Narančasta strelica pokazuje trenutno ' +
+    'aktivan smjer toka — provjerite poklapa li se sa stvarnim tokom vode prije pokretanja analize.',
   'video.roiPoint': 'Točka',
   'video.knownDimensions': 'Izmjerene dimenzije ROI-ja',
   'video.roiWidth': 'Izmjerena širina vode',

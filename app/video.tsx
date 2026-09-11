@@ -545,6 +545,7 @@ export default function VideoVelocityScreen() {
             aspectRatio={roiAspectRatio}
             sourceSize={videoTrack?.size}
             fit="cover"
+            flowDirection={flowDirection}
           >
             <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="cover" />
           </RoiEditor>

@@ -116,7 +116,9 @@ export const en = {
   'video.videoStored': 'Original video stored permanently on this device.',
   'video.storedSize': 'Stored size',
   'video.roiTitle': 'ROI · points 1–4',
-  'video.roiHint': 'Select a point, then tap the frame to move it. Flow runs from edge 1–2 to 4–3.',
+  'video.roiHint':
+    'Select a point, then tap the frame to move it. The orange arrow shows the flow direction ' +
+    'currently in effect — check it matches the water before running the analysis.',
   'video.roiPoint': 'Point',
   'video.knownDimensions': 'Measured ROI dimensions',
   'video.roiWidth': 'Measured water width',

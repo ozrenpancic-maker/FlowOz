@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Polygon, Line as SvgLine, Svg } from 'react-native-svg';
 
-import type { NormalizedPoint, WaterRoi } from '../domain/types';
+import type { FlowDirection, NormalizedPoint, WaterRoi } from '../domain/types';
 import { normalizedDisplayToSource, normalizedSourceToDisplay, type FitMode } from '../domain/coordinate-transform';
 import { ROI_POINT_ORDER, type RoiPointKey } from '../video/roi';
 import { colors, radius, spacing, typography } from './theme';
@@ -26,6 +27,7 @@ export function RoiEditor({
   pointLabel,
   sourceSize,
   fit = 'cover',
+  flowDirection = 'FORWARD',
 }: {
   roi: WaterRoi;
   onChange: (next: WaterRoi) => void;
@@ -37,6 +39,10 @@ export function RoiEditor({
   sourceSize?: { width: number; height: number };
   /** How `children`'s preview fits the box — must match its own contentFit. */
   fit?: FitMode;
+  /** Which way the ROI's own edges (1-2 towards 4-3, or reversed) is taken
+   * as downstream — drawn as an arrow through the ROI so the direction is
+   * never just a sentence to re-derive from the point numbering. */
+  flowDirection?: FlowDirection;
 }) {
   const [active, setActive] = useState<RoiPointKey>('topLeft');
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -117,6 +123,11 @@ export function RoiEditor({
             ))}
           </View>
         </Pressable>
+        {size.width > 0 && size.height > 0 ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <FlowArrow roi={roi} size={size} toDisplay={toDisplay} flowDirection={flowDirection} />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.picker}>
@@ -172,6 +183,57 @@ function edges(
       },
     };
   });
+}
+
+/**
+ * A visible arrow through the ROI's centre, pointing the way the ROI's own
+ * edges (1-2 towards 4-3, or the reverse) are currently taken as downstream —
+ * so the operator can see the effective flow direction at a glance instead of
+ * re-deriving it from the point numbering and the FlowDirection setting.
+ */
+function FlowArrow({
+  roi,
+  size,
+  toDisplay,
+  flowDirection,
+}: {
+  roi: WaterRoi;
+  size: { width: number; height: number };
+  toDisplay: (point: NormalizedPoint) => NormalizedPoint;
+  flowDirection: FlowDirection;
+}) {
+  const midpoint = (a: NormalizedPoint, b: NormalizedPoint): NormalizedPoint => ({
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  });
+  const mid12 = toDisplay(midpoint(roi.topLeft, roi.topRight));
+  const mid43 = toDisplay(midpoint(roi.bottomLeft, roi.bottomRight));
+
+  const [from, to] = flowDirection === 'REVERSED' ? [mid43, mid12] : [mid12, mid43];
+  const x1 = from.x * size.width;
+  const y1 = from.y * size.height;
+  const x2 = to.x * size.width;
+  const y2 = to.y * size.height;
+
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  if (length < 1) return null;
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const headLength = Math.min(16, length * 0.4);
+  const headWidth = headLength * 0.7;
+  const backX = x2 - headLength * Math.cos(angle);
+  const backY = y2 - headLength * Math.sin(angle);
+  const leftX = backX + (headWidth / 2) * Math.sin(angle);
+  const leftY = backY - (headWidth / 2) * Math.cos(angle);
+  const rightX = backX - (headWidth / 2) * Math.sin(angle);
+  const rightY = backY + (headWidth / 2) * Math.cos(angle);
+
+  return (
+    <Svg width={size.width} height={size.height} style={StyleSheet.absoluteFill}>
+      <SvgLine x1={x1} y1={y1} x2={backX} y2={backY} stroke={colors.warning} strokeWidth={3} />
+      <Polygon points={`${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`} fill={colors.warning} />
+    </Svg>
+  );
 }
 
 const styles = StyleSheet.create({
