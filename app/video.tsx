@@ -133,6 +133,7 @@ export default function VideoVelocityScreen() {
   // crop a differently-shaped source, and every point the operator taps would
   // land on the wrong part of the frame the SSIV pipeline actually decodes.
   const { videoTrack } = useEvent(player, 'videoTrackChange', { videoTrack: player.videoTrack });
+  const videoInfoReady = Boolean(videoTrack && videoTrack.size.width > 0 && videoTrack.size.height > 0);
   const roiAspectRatio =
     videoTrack && videoTrack.size.width > 0 && videoTrack.size.height > 0
       ? videoTrack.size.width / videoTrack.size.height
@@ -559,21 +560,39 @@ export default function VideoVelocityScreen() {
 
           <SectionTitle>{t('video.roiTitle')}</SectionTitle>
           <Muted>{t('video.roiHint')}</Muted>
-          <RoiEditor
-            roi={roi}
-            onChange={setRoi}
-            pointLabel={t('video.roiPoint')}
-            aspectRatio={roiAspectRatio}
-            sourceSize={videoTrack?.size}
-            fit="contain"
-            flowDirection={flowDirection}
-          >
-            <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="contain" />
-            {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
-          </RoiEditor>
-          {analysis ? (
-            <Muted>{t('video.vectorOverlayHint')}</Muted>
-          ) : null}
+          {videoInfoReady ? (
+            <>
+              <RoiEditor
+                roi={roi}
+                onChange={setRoi}
+                pointLabel={t('video.roiPoint')}
+                aspectRatio={roiAspectRatio}
+                sourceSize={videoTrack?.size}
+                fit="contain"
+                flowDirection={flowDirection}
+              >
+                <VideoView
+                  player={player}
+                  style={StyleSheet.absoluteFill}
+                  nativeControls={false}
+                  contentFit="contain"
+                />
+                {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
+              </RoiEditor>
+              {analysis ? <Muted>{t('video.vectorOverlayHint')}</Muted> : null}
+            </>
+          ) : (
+            // Every ROI point is stored as a fraction of the source frame's own
+            // width/height — correct only if the box the operator is tapping on
+            // already has the video's real aspect ratio. Before the player has
+            // reported that (videoTrack still unresolved — seen in practice on
+            // larger imported files), there is no way to draw a box shaped
+            // right, so points would silently land on the wrong part of the
+            // frame the SSIV pipeline actually decodes. Waiting here, rather
+            // than falling back to a guessed 16:9 box, is what keeps that from
+            // happening.
+            <Note tone="warning">{t('video.roiWaitingForVideoInfo')}</Note>
+          )}
 
           <SectionTitle>{t('video.nudgeRoi.title')}</SectionTitle>
           <Muted>{t('video.nudgeRoi.hint')}</Muted>

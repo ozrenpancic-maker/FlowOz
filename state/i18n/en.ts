@@ -120,6 +120,8 @@ export const en = {
     'Select a point, then tap the frame to move it. The orange arrow shows the flow direction ' +
     'currently in effect — check it matches the water before running the analysis.',
   'video.roiPoint': 'Point',
+  'video.roiWaitingForVideoInfo':
+    'Waiting for the video’s real dimensions before allowing ROI points to be placed — this can take a few seconds for larger imported files. This prevents a point silently landing in the wrong place from a guessed aspect ratio.',
   'video.knownDimensions': 'Measured ROI dimensions',
   'video.roiWidth': 'Measured water width',
   'video.roiLength': 'Measured reference length',

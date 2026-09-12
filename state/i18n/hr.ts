@@ -118,6 +118,8 @@ export const hr: Record<keyof typeof en, string> = {
     'Odaberite točku pa dodirnite kadar da je pomaknete. Narančasta strelica pokazuje trenutno ' +
     'aktivan smjer toka — provjerite poklapa li se sa stvarnim tokom vode prije pokretanja analize.',
   'video.roiPoint': 'Točka',
+  'video.roiWaitingForVideoInfo':
+    'Čekam podatke o videu (stvarnu širinu/visinu) prije nego dopustim postavljanje ROI točaka — kod velikih uvezenih datoteka ovo može potrajati par sekundi. Ovo sprječava da točke slučajno padnu na krivo mjesto zbog pogrešno pretpostavljenog omjera slike.',
   'video.knownDimensions': 'Izmjerene dimenzije ROI-ja',
   'video.roiWidth': 'Izmjerena širina vode',
   'video.roiLength': 'Izmjerena referentna duljina',
