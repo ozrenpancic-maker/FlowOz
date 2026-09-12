@@ -786,6 +786,14 @@ export default function VideoVelocityScreen() {
                 : 'video.backgroundKept'
             )}
           />
+          <ValueRow
+            label={t('video.sceneBackground')}
+            value={
+              Number.isFinite(analysis.quality.sceneBackgroundCorrelation)
+                ? formatNumber(analysis.quality.sceneBackgroundCorrelation, 3)
+                : '—'
+            }
+          />
           <ValueRow label={t('video.calibrationStatus')} value={analysis.calibrationStatus} tone="pass" />
 
           <SectionTitle>{t('video.cameraStability.title')}</SectionTitle>

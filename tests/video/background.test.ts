@@ -1,6 +1,7 @@
 import {
   MIN_BACKGROUND_FRAMES,
   backgroundCorrelation,
+  framePairCorrelation,
   staticBackground,
   suppressStaticBackground,
 } from '../../video/background';
@@ -74,10 +75,10 @@ describe('staticBackground', () => {
 describe('backgroundCorrelation', () => {
   it('is 1 for a frame that is the background', () => {
     const { frames, scene } = sceneFrames(8);
-    expect(backgroundCorrelation(scene, scene)).toBeCloseTo(1, 9);
+    expect(backgroundCorrelation(scene, scene, WIDTH)).toBeCloseTo(1, 9);
     // A frame is the scene plus its own blob, so it clears the floor the
     // suppression decides on without reaching 1.
-    expect(backgroundCorrelation(frames[0] as Float32Array, scene)).toBeGreaterThan(0.55);
+    expect(backgroundCorrelation(frames[0] as Float32Array, scene, WIDTH)).toBeGreaterThan(0.55);
   });
 
   it('is near zero for a frame unrelated to the background', () => {
@@ -87,12 +88,12 @@ describe('backgroundCorrelation', () => {
     for (let y = 0; y < HEIGHT; y += 1) {
       for (let x = 0; x < WIDTH; x += 1) other[y * WIDTH + x] = texture(x, y);
     }
-    expect(Math.abs(backgroundCorrelation(other, scene))).toBeLessThan(0.55);
+    expect(Math.abs(backgroundCorrelation(other, scene, WIDTH))).toBeLessThan(0.55);
   });
 
   it('reports NaN for a flat background with no variance to correlate against', () => {
     const flat = new Float32Array(PIXELS).fill(100);
-    expect(Number.isNaN(backgroundCorrelation(flat, flat))).toBe(true);
+    expect(Number.isNaN(backgroundCorrelation(flat, flat, WIDTH))).toBe(true);
   });
 });
 
@@ -101,7 +102,7 @@ describe('suppressStaticBackground', () => {
     const { frames } = sceneFrames(12);
     const result = suppressStaticBackground(pairsFrom(frames));
     expect(result.applied).toBe(true);
-    expect(result.correlation).toBeGreaterThan(0.55);
+    expect(result.roiCorrelation).toBeGreaterThan(0.55);
 
     // Away from the blob, every frame was the same scene: the residual is ~0.
     const residual = result.pairs[0]?.first as Float32Array;
@@ -126,13 +127,77 @@ describe('suppressStaticBackground', () => {
     const clip = makeClip({ visibleBed: { movingAmplitude: 0.3 } });
     const result = suppressStaticBackground(clip.pairs);
     expect(result.applied).toBe(true);
-    expect(result.correlation).toBeGreaterThan(0.55);
+    expect(result.roiCorrelation).toBeGreaterThan(0.55);
+  });
+
+  it('judges the ROI on its own, not on how much of the frame happens to be water', () => {
+    // Half the frame is scenery that never moves, half is water that changes
+    // every frame. A whole-frame number would land near the middle whatever
+    // the estimate is worth; measured per region, the two halves separate.
+    // Full working resolution: on a frame small enough to hold only a handful
+    // of independent texture cells, two unrelated fields correlate strongly by
+    // chance alone and the measurement means nothing.
+    const width = 240;
+    const height = 135;
+    const pixels = width * height;
+    const bank = makeTexture(width, height, 3);
+    const roiRegion = { x0: width / 2, y0: 0, x1: width, y1: height };
+
+    const frames: Float32Array[] = [];
+    for (let f = 0; f < 12; f += 1) {
+      const water = makeTexture(width, height, 500 + f * 31);
+      const frame = new Float32Array(pixels);
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          frame[y * width + x] = x < width / 2 ? bank(x, y) : water(x, y);
+        }
+      }
+      frames.push(frame);
+    }
+
+    const a = frames[0] as Float32Array;
+    const b = frames[6] as Float32Array;
+    // The bank is identical in every frame; the water shares nothing.
+    expect(framePairCorrelation(a, b, width, roiRegion, false)).toBeGreaterThan(0.9);
+    expect(framePairCorrelation(a, b, width, roiRegion, true)).toBeLessThan(0.55);
+  });
+
+  it('does not credit a frame for appearing in the median built from it', () => {
+    // A median of these frames contains every one of them, so a frame scores
+    // well against it even where the scene shares nothing — the self-inclusion
+    // alone reads as a half-decent match and would wave through an estimate
+    // worth nothing. Two frames compared with each other cannot do that.
+    const width = 240;
+    const height = 135;
+    const pixels = width * height;
+    const frames: Float32Array[] = [];
+    for (let f = 0; f < 12; f += 1) {
+      const water = makeTexture(width, height, 900 + f * 37);
+      const frame = new Float32Array(pixels);
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) frame[y * width + x] = water(x, y);
+      }
+      frames.push(frame);
+    }
+
+    const background = staticBackground(frames, pixels);
+    expect(background).not.toBeNull();
+    if (!background) return;
+
+    const againstMedian = backgroundCorrelation(frames[0] as Float32Array, background, width);
+    const againstAnother = framePairCorrelation(
+      frames[0] as Float32Array,
+      frames[6] as Float32Array,
+      width
+    );
+    expect(againstMedian).toBeGreaterThan(againstAnother + 0.2);
+    expect(Math.abs(againstAnother)).toBeLessThan(0.55);
   });
 
   it('does nothing with too few pairs to estimate a background', () => {
     const clip = makeClip({ visibleBed: { movingAmplitude: 0.3 }, pairs: 2 });
     const result = suppressStaticBackground(clip.pairs);
     expect(result.applied).toBe(false);
-    expect(Number.isNaN(result.correlation)).toBe(true);
+    expect(Number.isNaN(result.roiCorrelation)).toBe(true);
   });
 });

@@ -280,11 +280,19 @@ export interface SsivQualitySummary {
   distinctAcceptedColumns: number;
   /**
    * Median correlation between the sampled frames and the static background
-   * estimated from them — how much of this footage is scenery that never
-   * moved (a streambed seen through clear water, a bank the ROI overlaps)
-   * rather than water. NaN when there were too few frames to estimate one.
+   * estimated from them, measured INSIDE the ROI: whether there is anything
+   * static under this water at all — a streambed showing through, or a bank
+   * the ROI overlaps. This is what decides the suppression, because it is the
+   * only place the correlation ever reads. NaN when there were too few frames
+   * to estimate a background.
    */
   staticBackgroundCorrelation: number;
+  /**
+   * The same measured OUTSIDE the ROI, over the scenery — whether the camera
+   * held still. Diagnostic only: a low value here says the estimate is
+   * smeared by camera drift and worth distrusting even where it reads high.
+   */
+  sceneBackgroundCorrelation: number;
   /** Whether that background was actually subtracted before interrogation. */
   backgroundSuppressed: boolean;
   /** Image-quality metrics computed on the ROI's own bounding box of the first

@@ -163,9 +163,10 @@ export const hr: Record<keyof typeof en, string> = {
   'video.crossFlowNarrowColumn':
     'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
   'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
-  'video.staticBackground': 'Statična pozadina (korelacija)',
+  'video.staticBackground': 'Statična podloga u ROI-u (korelacija)',
+  'video.sceneBackground': 'Statična scena izvan ROI-a (korelacija)',
   'video.backgroundSuppressed': 'uklonjena prije mjerenja',
-  'video.backgroundKept': 'nije uklonjena — nema zajedničke statične podloge',
+  'video.backgroundKept': 'nije uklonjena — pod vodom nema statične podloge',
   'video.nudgeRoi.title': 'Pomakni ROI (čuva stvarnu širinu/duljinu)',
   'video.nudgeRoi.hint':
     'Nakon što jednom točno postaviš ROI na izmjerenu širinu i duljinu, ovim strelicama pomakni cijeli okvir po kanalu — aplikacija sama preračuna piksele kroz kalibraciju tako da stvarna širina i duljina ostanu točno iste, umjesto da nagađaš nove točke. Ako pomak izađe izvan kadra, javit će se greška "izvan kadra".',
@@ -353,7 +354,8 @@ export const hr: Record<keyof typeof en, string> = {
   'saved.technical.speedMagnitude': 'Ukupna brzina (dijagnostičko)',
   'saved.technical.crossFlowRatio': 'Omjer poprečnog toka',
   'saved.technical.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
-  'saved.technical.staticBackground': 'Statična pozadina (korelacija)',
+  'saved.technical.staticBackground': 'Statična podloga u ROI-u (korelacija)',
+  'saved.technical.sceneBackground': 'Statična scena izvan ROI-a (korelacija)',
   'saved.technical.ssivSnr': 'SSIV SNR (medijan)',
   'saved.technical.algorithmVersion': 'Verzija algoritma',
   'saved.technical.cameraLevelTitle': 'DOKAZI KAMERSKE RAZINE',

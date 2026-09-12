@@ -46,6 +46,7 @@ function baseAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
       crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
       distinctAcceptedColumns: 0,
       staticBackgroundCorrelation: Number.NaN,
+      sceneBackgroundCorrelation: Number.NaN,
       backgroundSuppressed: false,
     },
     thresholds: SSIV_THRESHOLDS,

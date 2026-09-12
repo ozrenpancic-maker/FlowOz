@@ -1,5 +1,4 @@
 import { bytesToLuminance, decodeBase64 } from './base64';
-import { applyClahe } from './clahe';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import type { PlannedPair } from './frame-plan';
 import { SSIV_THRESHOLDS, type DecodedClip, type FramePair } from './types';
@@ -182,19 +181,17 @@ export function framePairFromMessage(
     };
   }
 
-  // Local contrast enhancement before either frame is used for anything —
-  // stabilisation's background anchors and the water interrogation grid both
-  // read the same enhanced plane, so a correlation comparing the two frames
-  // never sees one raw and one stretched.
-  const firstLuminance = applyClahe(bytesToLuminance(first), message.width, message.height);
-  const secondLuminance = applyClahe(bytesToLuminance(second), message.width, message.height);
-
+  // Luminance as decoded, with no per-frame processing. Contrast enhancement
+  // is a per-frame NONLINEAR mapping, so applying it here would make the same
+  // static scenery map to slightly different values in every frame and blunt
+  // the temporal background estimate that depends on it being identical —
+  // ssiv-core applies it where it is actually wanted instead.
   return {
     ok: true,
     pair: {
       index: message.index,
-      first: firstLuminance,
-      second: secondLuminance,
+      first: bytesToLuminance(first),
+      second: bytesToLuminance(second),
       width: message.width,
       height: message.height,
       frameDeltaS: message.frameDeltaS,

@@ -164,9 +164,10 @@ export const en = {
   'video.crossFlowNarrowColumn':
     'MORE LIKELY CAUSE: the result comes from a single grid column of the ROI (see "Distinct grid columns" below) while the rest of the grid was rejected for weak correlation. That is the signature of that edge of the ROI sitting on the bank, a rock, or other static ground rather than water — not a misaligned flow direction. Narrow the ROI to cover only the water surface and re-run the measurement.',
   'video.distinctAcceptedColumns': 'Distinct grid columns in result',
-  'video.staticBackground': 'Static background (correlation)',
+  'video.staticBackground': 'Static ground under the ROI (correlation)',
+  'video.sceneBackground': 'Static scenery outside the ROI (correlation)',
   'video.backgroundSuppressed': 'removed before measurement',
-  'video.backgroundKept': 'not removed — no shared static scenery',
+  'video.backgroundKept': 'not removed — nothing static under this water',
   'video.nudgeRoi.title': 'Move ROI (keeps the real width/length)',
   'video.nudgeRoi.hint':
     'Once the ROI is correctly placed against its measured width and length, use these arrows to slide the whole box along the channel — the app recomputes the pixels through the calibration so the real width and length stay exactly the same, instead of you guessing new corner positions. A move that lands outside the frame will show an "outside frame" error.',
@@ -356,7 +357,8 @@ export const en = {
   'saved.technical.speedMagnitude': 'Speed magnitude (diagnostic)',
   'saved.technical.crossFlowRatio': 'Cross-flow ratio',
   'saved.technical.distinctAcceptedColumns': 'Distinct grid columns in result',
-  'saved.technical.staticBackground': 'Static background (correlation)',
+  'saved.technical.staticBackground': 'Static ground under the ROI (correlation)',
+  'saved.technical.sceneBackground': 'Static scenery outside the ROI (correlation)',
   'saved.technical.ssivSnr': 'SSIV SNR (median)',
   'saved.technical.algorithmVersion': 'Algorithm version',
   'saved.technical.cameraLevelTitle': 'CAMERA LEVEL EVIDENCE',

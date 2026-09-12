@@ -13,6 +13,7 @@ import {
   type PreparedGrid,
 } from './ncc';
 import { suppressStaticBackground } from './background';
+import { applyClahe } from './clahe';
 import { ssivFailure, type SsivFailure } from './failure-taxonomy';
 import { cameraDisplacementAt, stabiliseAll } from './stabilisation';
 import { computeImageQuality, cropFrame, refuseOnImageQuality, type ImageQualityMetrics } from './image-quality';
@@ -575,10 +576,18 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   // step runs here.
   const pairs = clip.pairs;
 
-  // Camera motion is measured on the frames as captured: background anchors
-  // track precisely the static scenery the suppression below removes, so this
-  // has to run first and on the untouched planes.
-  const stabilisation = stabiliseAll(pairs, roi);
+  // Camera motion is measured on the scenery, which is exactly the static
+  // content the suppression below removes — so it runs first, and on planes
+  // stretched for local contrast, which helps precisely where the anchors
+  // look. The water grid gets no such per-frame mapping: being nonlinear and
+  // recomputed per frame, it would keep the same scenery from mapping to the
+  // same values twice and blunt the temporal background estimate.
+  const stabilisationPairs = pairs.map((pair) => ({
+    ...pair,
+    first: applyClahe(pair.first as Float32Array, pair.width, pair.height),
+    second: applyClahe(pair.second as Float32Array, pair.width, pair.height),
+  }));
+  const stabilisation = stabiliseAll(stabilisationPairs, roi);
   const stablePairs = stabilisation.filter((entry) => entry.stable);
   if (stablePairs.length < SSIV_THRESHOLDS.minStablePairs) {
     return err(
@@ -602,8 +611,14 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
 
   // Everything that held still across the clip is removed before the water is
   // interrogated, so a streambed visible through shallow water cannot win the
-  // correlation against the ripples moving over it — see background.ts.
-  const background = suppressStaticBackground(pairs);
+  // correlation against the ripples moving over it — see background.ts. The
+  // decision is measured inside the ROI, the only place the correlation
+  // actually reads.
+  const firstFrame = clip.pairs[0];
+  const background = suppressStaticBackground(
+    pairs,
+    firstFrame ? roiPixelBoundingBox(roi, firstFrame.width, firstFrame.height) : undefined
+  );
   const movingPairs = background.pairs;
 
   // The ensemble estimate: correlation surfaces of every stabilised pair
@@ -839,18 +854,39 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     ensembleUsable && ensembleVelocity !== undefined ? 'ensemble' : 'instantaneous';
   const surfaceVelocity =
     velocitySource === 'ensemble' ? (ensembleVelocity as number) : (instantaneousVelocity ?? NaN);
-  if (!Number.isFinite(surfaceVelocity) || surfaceVelocity <= 0) {
+
+  // The scatter of the very vectors that produced the number above. Water
+  // crossing the section purely sideways leaves a streamwise median that is
+  // noise either side of zero, so a bare `<= 0` test is decided by which way
+  // that noise happened to fall — half such clips would be reported as a real,
+  // confidently tiny velocity. Requiring the reading to stand clear of its own
+  // scatter is that same test made robust, and it invents nothing: the floor
+  // is the spread this measurement actually produced. Vectors that all agree
+  // exactly have no scatter and are not held back by it.
+  const reportedSpread =
+    velocitySource === 'ensemble'
+      ? ensembleVelocities.length > 0
+        ? medianAbsoluteDeviation(ensembleVelocities, ensembleVelocity)
+        : 0
+      : velocities.length > 0
+        ? medianAbsoluteDeviation(velocities, instantaneousVelocity)
+        : 0;
+  const noiseFloor = Number.isFinite(reportedSpread) ? Math.max(0, reportedSpread) : 0;
+
+  if (!Number.isFinite(surfaceVelocity) || surfaceVelocity <= 0 || surfaceVelocity <= noiseFloor) {
     // Distinct from the vector-count check above: enough vectors passed every
-    // quality filter here, but they average out to zero or upstream motion —
-    // a different real cause (no net downstream flow, or the ROI's flow
-    // direction not matching the actual flow) than "too few tracked points",
-    // so the detail says exactly that instead of repeating "median velocity".
+    // quality filter here, but they average out to zero, to upstream motion,
+    // or to a number smaller than their own disagreement — a different real
+    // cause (no net downstream flow, or the ROI's flow direction not matching
+    // the actual flow) than "too few tracked points", so the detail says
+    // exactly that instead of repeating "median velocity".
     return err(
       ssivFailure(
         'INSUFFICIENT_VALID_VECTORS',
         `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
           `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the median streamwise ` +
-          `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s — ` +
+          `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s ` +
+          `against a spread of ${noiseFloor.toFixed(6)} m/s — ` +
           'no net downstream motion was measured',
         {
           totalVectors: vectors.length,
@@ -911,7 +947,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     crossFlowRatio,
     crossFlowWarningRatio: SSIV_THRESHOLDS.crossFlowWarningRatio,
     distinctAcceptedColumns,
-    staticBackgroundCorrelation: background.correlation,
+    staticBackgroundCorrelation: background.roiCorrelation,
+    sceneBackgroundCorrelation: background.sceneCorrelation,
     backgroundSuppressed: background.applied,
     ...(imageQuality ? { imageQuality } : {}),
   };

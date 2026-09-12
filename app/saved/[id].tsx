@@ -464,6 +464,14 @@ export default function MeasurementDetailScreen() {
                         : 'video.backgroundKept'
                     )}
                   />
+                  <ValueRow
+                    label={t('saved.technical.sceneBackground')}
+                    value={
+                      Number.isFinite(analysis.quality.sceneBackgroundCorrelation)
+                        ? formatNumber(analysis.quality.sceneBackgroundCorrelation, 3)
+                        : '—'
+                    }
+                  />
                   {analysis.quality.crossFlowRatio > analysis.quality.crossFlowWarningRatio &&
                   analysis.quality.distinctAcceptedColumns <= 1 ? (
                     <Note tone="warning">{t('video.crossFlowNarrowColumn')}</Note>
