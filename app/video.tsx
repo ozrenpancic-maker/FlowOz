@@ -565,11 +565,11 @@ export default function VideoVelocityScreen() {
             pointLabel={t('video.roiPoint')}
             aspectRatio={roiAspectRatio}
             sourceSize={videoTrack?.size}
-            fit="cover"
+            fit="contain"
             flowDirection={flowDirection}
           >
-            <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="cover" />
-            {analysis ? <VectorOverlay analysis={analysis} /> : null}
+            <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} contentFit="contain" />
+            {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
           </RoiEditor>
           {analysis ? (
             <Muted>{t('video.vectorOverlayHint')}</Muted>
