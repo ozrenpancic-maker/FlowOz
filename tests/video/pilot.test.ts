@@ -14,6 +14,7 @@ function probe(overrides: Partial<SpacingProbe>): SpacingProbe {
     medianCorrelation: 0.9,
     usableVectors: 20,
     atSearchEdge: 0,
+    stabilised: true,
     ...overrides,
   };
 }
@@ -122,6 +123,30 @@ describe('choosing the spacing to measure at', () => {
       probe({ frameDeltaS: 0.48, medianDisplacementPx: 23, atSearchEdge: 20, usableVectors: 0 }),
     ]);
     expect(chosen?.frameDeltaS).toBeCloseTo(0.12, 6);
+  });
+
+  it('passes over a rung whose camera motion could not be measured', () => {
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 2 }),
+      probe({
+        frameDeltaS: 0.96,
+        medianDisplacementPx: TARGET_DISPLACEMENT_PX,
+        stabilised: false,
+      }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.12, 6);
+  });
+
+  it('still chooses on displacement when no rung stabilised at all', () => {
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 2, stabilised: false }),
+      probe({
+        frameDeltaS: 0.48,
+        medianDisplacementPx: TARGET_DISPLACEMENT_PX,
+        stabilised: false,
+      }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
   });
 
   it('has nothing to say about an empty ladder', () => {

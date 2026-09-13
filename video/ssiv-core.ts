@@ -616,7 +616,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     const available = stabilisation.map((entry) => entry.anchorsAvailable);
     const tracked = stabilisation.map((entry) => entry.anchorsUsed);
     const edged = stabilisation.map((entry) => entry.anchorsAtSearchEdge);
-    const anchorCorrelations = stabilisation.map((entry) => entry.correlation);
+    const keptCorrelations = stabilisation.map((entry) => entry.correlation);
+    const allCorrelations = stabilisation.map((entry) => entry.candidateCorrelation);
     return err(
       ssivFailure(
         'UNSTABLE_CAMERA',
@@ -624,12 +625,17 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
           `${SSIV_THRESHOLDS.minStablePairs} required; ` +
           `anchors offered ${median(available)}, tracked ${median(tracked)}, ` +
           `at search edge ${median(edged)}; ` +
-          `median anchor correlation ${median(anchorCorrelations).toFixed(2)} ` +
-          `(floor ${SSIV_THRESHOLDS.minStabilisationCorrelation})`,
+          `anchor correlation ${median(keptCorrelations).toFixed(2)} kept / ` +
+          `${median(allCorrelations).toFixed(2)} over all ` +
+          `(floor ${SSIV_THRESHOLDS.minStabilisationCorrelation}); ` +
+          // The spacing is chosen per clip now, and a longer one gives the
+          // scenery outside the ROI more time to change, so it belongs in any
+          // report of why the background could not be tracked.
+          `frame spacing ${median(clip.pairs.map((pair) => pair.frameDeltaS)).toFixed(3)} s`,
         {
           stablePairs: stablePairs.length,
           totalPairs: clip.pairs.length,
-          medianCorrelation: median(anchorCorrelations),
+          medianCorrelation: median(keptCorrelations),
         }
       )
     );

@@ -3,7 +3,7 @@ import { planFramePairs, processingSize } from '../../video/frame-plan';
 import { interrogationGrid, analyse, robustDirection } from '../../video/ssiv-core';
 import { backgroundAnchors, estimateCameraMotion } from '../../video/stabilisation';
 import { SSIV_THRESHOLDS } from '../../video/types';
-import { makeClip, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
+import { makeClip, makeTexture, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
 import { median } from '../../domain/linalg';
 import type { WaterRoi } from '../../domain/types';
 import { lateralVelocityProfile } from '../../video/lateral-profile';
@@ -225,6 +225,51 @@ describe('camera motion compensation', () => {
     const motion = estimateCameraMotion(pair, TEST_ROI);
     expect(motion.stable).toBe(true);
     expect(motion.anchorsAvailable).toBeGreaterThanOrEqual(motion.anchorsUsed);
+  });
+
+  it('judges a pair on the anchors it kept, not on the ones it already threw away', () => {
+    // A real bank is not uniformly trackable. Here the rock wall along the top
+    // of the frame holds still and correlates perfectly, while everything
+    // lower — grass, water running past the ROI — carries a different pattern
+    // in each frame and correlates with nothing.
+    //
+    // Both facts were true of the clip this came from: twelve anchor positions
+    // offered, four or five tracking cleanly, none past the edge of the search
+    // range, and the pair refused anyway because the median over all twelve
+    // anchors, the discarded ones included, came to 0.47 against a 0.55 floor.
+    // Every weak anchor had already been dropped before that median was taken.
+    const width = 240;
+    const height = 135;
+    const staticBand = 40;
+    const steady = makeTexture(width, height, 11);
+    // Finer grain than the wall's, so a correlation window covers many
+    // independent cells of it and two unrelated draws cannot agree by chance
+    // — which is what grass and running water look like at this scale.
+    const drifting = makeTexture(width, height, 12, 3);
+    const first = new Float32Array(width * height);
+    const second = new Float32Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const i = y * width + x;
+        first[i] = steady(x, y);
+        second[i] = y < staticBand ? steady(x, y) : drifting(x, y);
+      }
+    }
+    const motion = estimateCameraMotion(
+      { index: 0, first, second, width, height, frameDeltaS: 0.1 },
+      TEST_ROI
+    );
+
+    expect(motion.stable).toBe(true);
+    expect(motion.anchorsUsed).toBeGreaterThanOrEqual(3);
+    // The kept anchors are good; taken together with the ones dropped for
+    // being useless, they would not have been.
+    expect(motion.correlation).toBeGreaterThanOrEqual(
+      SSIV_THRESHOLDS.minStabilisationCorrelation
+    );
+    expect(motion.candidateCorrelation).toBeLessThan(
+      SSIV_THRESHOLDS.minStabilisationCorrelation
+    );
   });
 
   it('reports a stationary background as stable with no shift', () => {

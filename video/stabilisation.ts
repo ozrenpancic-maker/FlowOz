@@ -226,7 +226,8 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
   const anchors = backgroundAnchors(roi, pair.width, pair.height);
 
   const tracks: AnchorTrack[] = [];
-  const correlations: number[] = [];
+  const candidateCorrelations: number[] = [];
+  const trackedCorrelations: number[] = [];
   let atSearchEdge = 0;
 
   for (const anchor of anchors) {
@@ -234,13 +235,28 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     if (!patch) continue;
     const peak = findPeak(patch, second, anchor.x, anchor.y, SSIV_THRESHOLDS.stabilisationSearchRadiusPx);
     if (!peak) continue;
-    correlations.push(peak.correlation);
+    candidateCorrelations.push(peak.correlation);
     if (peak.atSearchEdge) atSearchEdge += 1;
     if (peak.correlation < SSIV_THRESHOLDS.minStabilisationCorrelation || peak.atSearchEdge) continue;
+    trackedCorrelations.push(peak.correlation);
     tracks.push({ x: anchor.x, y: anchor.y, dx: peak.subDx, dy: peak.subDy });
   }
 
-  const correlation = correlations.length > 0 ? median(correlations) : 0;
+  // The correlation the stabilisation rests on is the one of the anchors it
+  // kept. Every anchor below the floor was already dropped in the loop above;
+  // judging the pair a second time on a median that still includes them is
+  // double jeopardy, and it fails pairs that had perfectly good evidence.
+  //
+  // Field evidence: twelve anchor positions offered, four or five tracking
+  // cleanly, none past the edge of the search range — and the pair refused
+  // anyway, because the other seven sat on grass and wet stone whose weaker
+  // correlations pulled the median over all twelve to 0.47, under the 0.55
+  // floor. One pair of six survived a clip shot off a steady rest. Sampling
+  // the banks more thoroughly made this worse rather than better, which is
+  // the wrong way round for more evidence.
+  const correlation = trackedCorrelations.length > 0 ? median(trackedCorrelations) : 0;
+  const candidateCorrelation =
+    candidateCorrelations.length > 0 ? median(candidateCorrelations) : 0;
   const centreX = pair.width / 2;
   const centreY = pair.height / 2;
   const unstable = (anchorsUsed: number, residualPx: number): FramePairStabilisation => ({
@@ -253,11 +269,12 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     anchorsUsed,
     residualPx,
     correlation: Number.isFinite(correlation) ? correlation : 0,
+    candidateCorrelation: Number.isFinite(candidateCorrelation) ? candidateCorrelation : 0,
     stable: false,
     frameDeltaS: pair.frameDeltaS,
   });
 
-  if (tracks.length < 2 || correlation < SSIV_THRESHOLDS.minStabilisationCorrelation) {
+  if (tracks.length < 2) {
     return unstable(tracks.length, Number.POSITIVE_INFINITY);
   }
 
@@ -298,6 +315,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
         anchorsUsed: used.length,
         residualPx,
         correlation,
+        candidateCorrelation,
         stable: true,
         frameDeltaS: pair.frameDeltaS,
       };
@@ -331,6 +349,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     anchorsUsed: tracks.length,
     residualPx,
     correlation,
+    candidateCorrelation,
     stable: true,
     frameDeltaS: pair.frameDeltaS,
   };

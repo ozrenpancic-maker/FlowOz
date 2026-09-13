@@ -234,7 +234,19 @@ export interface FramePairStabilisation {
   anchorsUsed: number;
   /** Worst anchor residual against the fitted motion [px]. */
   residualPx: number;
+  /**
+   * Median correlation of the anchors the fit actually used — the quality of
+   * the evidence the stabilisation rests on.
+   */
   correlation: number;
+  /**
+   * Median correlation over every anchor that produced a peak, the ones below
+   * the floor included. Diagnostic only: it says how much of the scenery
+   * outside the ROI is worth tracking at all, which is a different question
+   * from how good the anchors that were kept were, and must never gate the
+   * pair — the weak ones have already been dropped by then.
+   */
+  candidateCorrelation: number;
   stable: boolean;
   frameDeltaS: number;
 }

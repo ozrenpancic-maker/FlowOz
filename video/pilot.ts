@@ -57,6 +57,16 @@ export interface SpacingProbe {
   usableVectors: number;
   /** Nodes whose match sat on the border of the search range. */
   atSearchEdge: number;
+  /**
+   * Whether the camera's own motion could be measured at this spacing.
+   *
+   * A longer spacing gives the stationary scenery more time to stop looking
+   * stationary — grass moves, light shifts, compression noise redraws fine
+   * detail — so a rung can show a beautiful water displacement and still be
+   * one the pipeline cannot use, because the shake underneath it could not be
+   * subtracted. That is worth knowing before committing the real pass to it.
+   */
+  stabilised: boolean;
 }
 
 /**
@@ -96,6 +106,7 @@ export function probeSpacing(pair: FramePair, roi: WaterRoi): SpacingProbe {
     medianCorrelation: correlations.length > 0 ? median(correlations) : 0,
     usableVectors: displacements.length,
     atSearchEdge,
+    stabilised: motion.stable,
   };
 }
 
@@ -128,8 +139,16 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
       probe.medianDisplacementPx <= MAX_USABLE_DISPLACEMENT_PX
   );
 
-  if (qualified.length > 0) {
-    return qualified.reduce((best, probe) =>
+  // A rung whose camera motion could not be measured is no use however good
+  // its displacement looks, so those are set aside while any rung that did
+  // stabilise remains. If none did, the run is going to fail on the camera
+  // whatever is chosen, and the displacement is the only thing left to choose
+  // on — better to fail with the spacing that at least saw the water.
+  const trackable = qualified.filter((probe) => probe.stabilised);
+  const preferred = trackable.length > 0 ? trackable : qualified;
+
+  if (preferred.length > 0) {
+    return preferred.reduce((best, probe) =>
       Math.abs(Math.log(probe.medianDisplacementPx / TARGET_DISPLACEMENT_PX)) <
       Math.abs(Math.log(best.medianDisplacementPx / TARGET_DISPLACEMENT_PX))
         ? probe
