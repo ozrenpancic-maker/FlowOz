@@ -201,6 +201,20 @@ export interface FramePairStabilisation {
   /** Rotation and scale implied by the similarity, for the record. */
   rotationRad?: number;
   scale?: number;
+  /**
+   * Background anchors the frame geometry offered at all — grid positions
+   * outside the ROI. Zero means the ROI left nowhere to measure the camera
+   * from, which is a different operator problem from anchors that were there
+   * and failed to track.
+   */
+  anchorsAvailable: number;
+  /**
+   * Anchors whose best match sat on the border of the search range, i.e. the
+   * camera moved further between the two frames than the search could follow.
+   * These are excluded from the fit. A high count is real camera motion, not
+   * missing texture, and the two call for opposite corrections.
+   */
+  anchorsAtSearchEdge: number;
   /** Background anchors that tracked and were used in the fit. */
   anchorsUsed: number;
   /** Worst anchor residual against the fitted motion [px]. */

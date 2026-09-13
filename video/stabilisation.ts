@@ -44,22 +44,56 @@ function pointInPolygon(polygon: readonly NormalizedPoint[], x: number, y: numbe
   return inside;
 }
 
-/** Sample positions on the stationary background: a grid of anchors outside the ROI. */
+/**
+ * Sample positions on the stationary background: a grid of anchors outside the
+ * ROI.
+ *
+ * An anchor is only usable where its whole correlation window *plus* its whole
+ * search range fits inside the frame, which is a `margin` band around the edge.
+ * A grid position that lands inside that band is nudged in to the nearest
+ * usable spot rather than thrown away: it is still a perfectly good sample of
+ * the stationary scene a few pixels further in, and throwing it away costs an
+ * entire row or column of the grid.
+ *
+ * That cost was not hypothetical. At the working resolution the frames are
+ * actually analysed at (240 px wide, so 135 px tall for 16:9) the margin is
+ * 24 px, and the grid's own top and bottom rows sit at y = 16.9 and y = 118.1
+ * — both inside the band. Discarding them left a 4x2 grid confined to the
+ * vertical middle of the frame, which on any normal shot of a channel running
+ * across the view is exactly where the water, and therefore the ROI, is. A
+ * realistically drawn ROI then left two anchors in one vertical line, below
+ * the three a rotation fit needs and one bad correlation away from no
+ * stabilisation at all — on every pair, whatever the operator did with the
+ * ROI. Nudging instead of discarding puts the top and bottom rows back on the
+ * banks, where the stationary texture actually is.
+ *
+ * Membership of the ROI is tested at the nudged position, not the original
+ * one, so an anchor that moves into the ROI is still correctly rejected.
+ */
 export function backgroundAnchors(roi: WaterRoi, width: number, height: number): { x: number; y: number }[] {
   const polygon = roiPolygon(roi);
   const anchors: { x: number; y: number }[] = [];
   // The correlation window plus its search radius has to fit inside the frame.
   const margin =
     Math.ceil(SSIV_THRESHOLDS.interrogationWindowPx / 2) + SSIV_THRESHOLDS.stabilisationSearchRadiusPx;
+  // Nothing fits: a frame this small has no position where a full search can
+  // be run, and pretending otherwise would report a motion measured off the
+  // edge of the image.
+  if (width < 2 * margin || height < 2 * margin) return [];
 
+  const seen = new Set<string>();
   for (let row = 0; row < 4; row += 1) {
     for (let col = 0; col < 4; col += 1) {
-      const nx = (col + 0.5) / 4;
-      const ny = (row + 0.5) / 4;
-      const x = nx * width;
-      const y = ny * height;
-      if (x < margin || y < margin || x > width - margin || y > height - margin) continue;
-      if (pointInPolygon(polygon, nx, ny)) continue;
+      const x = Math.min(Math.max(((col + 0.5) / 4) * width, margin), width - margin);
+      const y = Math.min(Math.max(((row + 0.5) / 4) * height, margin), height - margin);
+      if (pointInPolygon(polygon, x / width, y / height)) continue;
+      // Two grid positions can be nudged onto the same spot on a frame barely
+      // larger than the margins; one anchor there is one piece of evidence,
+      // not two, and counting it twice would let a single patch outvote the
+      // others in the fit.
+      const key = `${x.toFixed(3)},${y.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       anchors.push({ x, y });
     }
   }
@@ -110,11 +144,58 @@ export function fitSimilarity(tracks: readonly AnchorTrack[]): SimilarityTransfo
   return { a, b, tx, ty };
 }
 
+function residualOf(t: SimilarityTransform, track: AnchorTrack): number {
+  const mapped = applySimilarity(t, track.x, track.y);
+  return Math.hypot(mapped.x - (track.x + track.dx), mapped.y - (track.y + track.dy));
+}
+
 function residuals(t: SimilarityTransform, tracks: readonly AnchorTrack[]): number[] {
-  return tracks.map((track) => {
-    const mapped = applySimilarity(t, track.x, track.y);
-    return Math.hypot(mapped.x - (track.x + track.dx), mapped.y - (track.y + track.dy));
-  });
+  return tracks.map((track) => residualOf(t, track));
+}
+
+/**
+ * The largest set of anchors that agree on one rigid motion.
+ *
+ * "Everything outside the ROI is stationary" is an assumption, not a fact.
+ * Water carries on past the ROI's edge, a leaf floats through, a shadow
+ * drifts — each puts an anchor into the set that is faithfully tracking
+ * something that really moved. Fitting every anchor and then dropping the
+ * single worst one survives exactly one such anchor; past that, the outliers
+ * drag the fit far enough that every anchor looks wrong and the pair is
+ * thrown away as "unstable camera" even though most of the frame was
+ * perfectly still.
+ *
+ * The motion is chosen by consensus instead. Two anchors determine a
+ * similarity exactly — four unknowns, four equations — so every pair of
+ * anchors is one hypothesis, and the hypothesis the most anchors agree with
+ * inside MAX_ANCHOR_RESIDUAL_PX wins. The enumeration is exhaustive over
+ * anchor pairs rather than sampled, so the same clip always yields the same
+ * motion; with at most sixteen anchors it is also cheap.
+ */
+function consensusTracks(tracks: readonly AnchorTrack[]): AnchorTrack[] {
+  let best: AnchorTrack[] = [];
+  let bestError = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < tracks.length; i += 1) {
+    for (let j = i + 1; j < tracks.length; j += 1) {
+      const hypothesis = fitSimilarity([tracks[i] as AnchorTrack, tracks[j] as AnchorTrack]);
+      if (!hypothesis) continue;
+      const inliers: AnchorTrack[] = [];
+      let error = 0;
+      for (const track of tracks) {
+        const residual = residualOf(hypothesis, track);
+        if (!Number.isFinite(residual) || residual > MAX_ANCHOR_RESIDUAL_PX) continue;
+        inliers.push(track);
+        error += residual;
+      }
+      // More agreement wins; on a tie the tighter agreement does, so the
+      // result does not depend on which pair happened to be enumerated first.
+      if (inliers.length > best.length || (inliers.length === best.length && error < bestError)) {
+        best = inliers;
+        bestError = error;
+      }
+    }
+  }
+  return best;
 }
 
 /**
@@ -146,6 +227,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
 
   const tracks: AnchorTrack[] = [];
   const correlations: number[] = [];
+  let atSearchEdge = 0;
 
   for (const anchor of anchors) {
     const patch = extractPatch(first, anchor.x, anchor.y, SSIV_THRESHOLDS.interrogationWindowPx);
@@ -153,6 +235,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     const peak = findPeak(patch, second, anchor.x, anchor.y, SSIV_THRESHOLDS.stabilisationSearchRadiusPx);
     if (!peak) continue;
     correlations.push(peak.correlation);
+    if (peak.atSearchEdge) atSearchEdge += 1;
     if (peak.correlation < SSIV_THRESHOLDS.minStabilisationCorrelation || peak.atSearchEdge) continue;
     tracks.push({ x: anchor.x, y: anchor.y, dx: peak.subDx, dy: peak.subDy });
   }
@@ -165,6 +248,8 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     shiftXPx: 0,
     shiftYPx: 0,
     model: 'translation',
+    anchorsAvailable: anchors.length,
+    anchorsAtSearchEdge: atSearchEdge,
     anchorsUsed,
     residualPx,
     correlation: Number.isFinite(correlation) ? correlation : 0,
@@ -176,25 +261,20 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     return unstable(tracks.length, Number.POSITIVE_INFINITY);
   }
 
-  if (tracks.length >= 3) {
-    // Similarity fit, with one chance to drop a single anchor that sits on
-    // something that moved — a floating leaf, a shadow — provided enough
-    // anchors remain to still check the fit.
-    let used = tracks;
-    let fit = fitSimilarity(used);
-    let worst = fit ? residuals(fit, used) : [];
-    if (fit && used.length >= 4 && Math.max(...worst) > MAX_ANCHOR_RESIDUAL_PX) {
-      const drop = worst.indexOf(Math.max(...worst));
-      const remaining = used.filter((_, index) => index !== drop);
-      const refit = fitSimilarity(remaining);
-      if (refit) {
-        used = remaining;
-        fit = refit;
-        worst = residuals(refit, remaining);
-      }
-    }
+  // The consensus has to be a majority of the anchors that tracked, not just
+  // three of them. Any three points can be talked into agreeing on some
+  // similarity, so "three agree" on its own would let a corner of a frame that
+  // is warping non-rigidly — real shake, rolling shutter — pass as one clean
+  // camera motion. Requiring most of the evidence to fit means the model
+  // describes the frame rather than a fragment of it.
+  const consensus = tracks.length >= 3 ? consensusTracks(tracks) : tracks;
+  if (consensus.length >= 3 && consensus.length * 2 > tracks.length) {
+    // Refit over the anchors that agreed, so the reported motion uses all of
+    // their evidence rather than the two that seeded the hypothesis.
+    const used = consensus;
+    const fit = fitSimilarity(used);
     if (fit) {
-      const residualPx = Math.max(...worst);
+      const residualPx = Math.max(...residuals(fit, used));
       const scale = Math.hypot(fit.a, fit.b);
       const rotationRad = Math.atan2(fit.b, fit.a);
       const plausible =
@@ -213,6 +293,8 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
         similarity: fit,
         rotationRad,
         scale,
+        anchorsAvailable: anchors.length,
+        anchorsAtSearchEdge: atSearchEdge,
         anchorsUsed: used.length,
         residualPx,
         correlation,
@@ -222,7 +304,8 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     }
   }
 
-  // Two anchors: only a translation can be checked. They have to agree.
+  // Too few anchors agreed for a rotation to be checked: only a translation
+  // can be, and the anchors that are left have to agree on it.
   const shiftsX = tracks.map((track) => track.dx);
   const shiftsY = tracks.map((track) => track.dy);
   const shiftXPx = median(shiftsX);
@@ -243,6 +326,8 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     shiftXPx,
     shiftYPx,
     model: 'translation',
+    anchorsAvailable: anchors.length,
+    anchorsAtSearchEdge: atSearchEdge,
     anchorsUsed: tracks.length,
     residualPx,
     correlation,

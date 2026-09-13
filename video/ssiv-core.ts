@@ -590,12 +590,32 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const stabilisation = stabiliseAll(stabilisationPairs, roi);
   const stablePairs = stabilisation.filter((entry) => entry.stable);
   if (stablePairs.length < SSIV_THRESHOLDS.minStablePairs) {
+    // Three different problems all end here, and they need opposite
+    // corrections from the operator: no anchor positions at all (the ROI left
+    // no stationary scene to measure from), anchors that would not correlate
+    // (the scene outside the ROI carries no trackable texture), and anchors
+    // that tracked to the border of the search range (the camera really did
+    // move, further than the search follows). Reporting only the pair count
+    // told the operator "no texture" in all three cases. The counts below say
+    // which one it was.
+    const available = stabilisation.map((entry) => entry.anchorsAvailable);
+    const tracked = stabilisation.map((entry) => entry.anchorsUsed);
+    const edged = stabilisation.map((entry) => entry.anchorsAtSearchEdge);
+    const anchorCorrelations = stabilisation.map((entry) => entry.correlation);
     return err(
       ssivFailure(
         'UNSTABLE_CAMERA',
         `${stablePairs.length}/${clip.pairs.length} pairs stabilised, ` +
-          `${SSIV_THRESHOLDS.minStablePairs} required`,
-        { stablePairs: stablePairs.length, totalPairs: clip.pairs.length }
+          `${SSIV_THRESHOLDS.minStablePairs} required; ` +
+          `anchors offered ${median(available)}, tracked ${median(tracked)}, ` +
+          `at search edge ${median(edged)}; ` +
+          `median anchor correlation ${median(anchorCorrelations).toFixed(2)} ` +
+          `(floor ${SSIV_THRESHOLDS.minStabilisationCorrelation})`,
+        {
+          stablePairs: stablePairs.length,
+          totalPairs: clip.pairs.length,
+          medianCorrelation: median(anchorCorrelations),
+        }
       )
     );
   }

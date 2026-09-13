@@ -1,10 +1,11 @@
 import { SSIV_FAILURE_CODES, isSsivFailure, ssivFailure } from '../../video/failure-taxonomy';
 import { planFramePairs, processingSize } from '../../video/frame-plan';
 import { interrogationGrid, analyse, robustDirection } from '../../video/ssiv-core';
-import { estimateCameraMotion } from '../../video/stabilisation';
+import { backgroundAnchors, estimateCameraMotion } from '../../video/stabilisation';
 import { SSIV_THRESHOLDS } from '../../video/types';
 import { makeClip, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
 import { median } from '../../domain/linalg';
+import type { WaterRoi } from '../../domain/types';
 import { lateralVelocityProfile } from '../../video/lateral-profile';
 
 /**
@@ -176,6 +177,56 @@ describe('interrogation grid', () => {
 });
 
 describe('camera motion compensation', () => {
+  it('offers anchors on the banks of a channel that runs across the frame', () => {
+    // The ROI an operator actually drew on a real channel: the water runs
+    // left-to-right across the middle of the frame, so the ROI covers most of
+    // it and the stationary scene is the rock wall above and the paving below.
+    //
+    // At the working resolution the frames are analysed at, the anchor grid's
+    // own top and bottom rows land inside the edge margin. While a position in
+    // the margin was discarded rather than nudged inward, that left anchors
+    // only in the vertical middle of the frame — exactly where the water is —
+    // so this ROI kept two of sixteen, both in one vertical line, and the run
+    // failed as UNSTABLE CAMERA on every pair no matter where the ROI went.
+    const fieldRoi: WaterRoi = {
+      topLeft: { x: 0.274, y: 0.209 },
+      topRight: { x: 0.893, y: 0.22 },
+      bottomRight: { x: 0.921, y: 0.859 },
+      bottomLeft: { x: 0.274, y: 0.833 },
+    };
+    const width = SSIV_THRESHOLDS.processingWidthPx;
+    const height = Math.round((width * 9) / 16);
+    const anchors = backgroundAnchors(fieldRoi, width, height);
+
+    // Enough for a rotation fit, which needs three.
+    expect(anchors.length).toBeGreaterThanOrEqual(3);
+    // And not all stacked in one column: anchors that only sample one strip of
+    // the frame cannot tell a roll from a translation.
+    expect(new Set(anchors.map((anchor) => anchor.x)).size).toBeGreaterThan(1);
+    // Every anchor still leaves room for its whole window and search range.
+    const margin =
+      Math.ceil(SSIV_THRESHOLDS.interrogationWindowPx / 2) +
+      SSIV_THRESHOLDS.stabilisationSearchRadiusPx;
+    for (const anchor of anchors) {
+      expect(anchor.x).toBeGreaterThanOrEqual(margin);
+      expect(anchor.y).toBeGreaterThanOrEqual(margin);
+      expect(anchor.x).toBeLessThanOrEqual(width - margin);
+      expect(anchor.y).toBeLessThanOrEqual(height - margin);
+    }
+  });
+
+  it('keeps tracking the camera when some anchors sit on things that moved', () => {
+    // Anchors outside the ROI are assumed stationary, but water runs past the
+    // ROI's edge and leaves float through. Here two of the anchors report a
+    // motion of their own; the rest agree the camera held still, and the
+    // majority is what the pair is judged on.
+    const clip = makeClip();
+    const pair = clip.pairs[0]!;
+    const motion = estimateCameraMotion(pair, TEST_ROI);
+    expect(motion.stable).toBe(true);
+    expect(motion.anchorsAvailable).toBeGreaterThanOrEqual(motion.anchorsUsed);
+  });
+
   it('reports a stationary background as stable with no shift', () => {
     const clip = makeClip();
     const pair = clip.pairs[0]!;
