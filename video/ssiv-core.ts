@@ -44,6 +44,7 @@ const EMPTY_REJECTIONS: Record<VectorRejectionReason, number> = {
   HIGH_UNCERTAINTY: 0,
   FORWARD_BACKWARD_MISMATCH: 0,
   SEARCH_WINDOW_EDGE: 0,
+  UNRESOLVED_DISPLACEMENT: 0,
   DIRECTIONAL_OUTLIER: 0,
   SPATIAL_OUTLIER: 0,
   NON_FINITE: 0,
@@ -220,6 +221,20 @@ function applyPointFilters(vector: PointMetrics): VectorRejectionReason | null {
   if (vector.forwardBackwardPx > SSIV_THRESHOLDS.maxForwardBackwardPx) {
     return 'FORWARD_BACKWARD_MISMATCH';
   }
+  // The correlation surface is sampled at whole pixels, so a displacement
+  // shorter than one pixel was never located on it: the integer peak sat at
+  // the origin and everything after the decimal point came from fitting a
+  // parabola through three samples that differ by noise. Such a vector is an
+  // interpolation, not a measurement, and averaging a gridful of them yields a
+  // confident-looking number with nothing behind it.
+  //
+  // This is what a real field clip looked like: a 2 m ROI across a 240 px
+  // working frame at 0.16 s spacing, on water genuinely running near 0.4 m/s.
+  // Every accepted vector in the dump carried a displacement between 0.00 and
+  // 0.17 px at correlations of 0.6-0.84 — a peak pinned at zero — and the run
+  // reported 0.0020 m/s, some two hundred times under the truth, rather than
+  // admitting the setup could not resolve the motion.
+  if (Math.hypot(vector.dxPx, vector.dyPx) < 1) return 'UNRESOLVED_DISPLACEMENT';
   return null;
 }
 
@@ -625,9 +640,16 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   // frame either side of the planned band — the velocity divides by the
   // measured value, and a displacement that has grown too large is caught by
   // the search-window edge test rather than by guessing here.
+  //
+  // The band runs to the top of the pilot ladder, not to the fixed sampling
+  // default: how far apart the frames should be is chosen per clip from the
+  // displacement the water actually produces, so the core has to accept every
+  // spacing that choice can land on. Holding the old ceiling here would have
+  // thrown away every pair of exactly the slow-water clips the ladder exists
+  // to reach.
   const deltaTolerance = SSIV_THRESHOLDS.maxFrameDeltaDeviationFraction;
   const minUsableDeltaS = SSIV_THRESHOLDS.minFrameDeltaS * (1 - deltaTolerance);
-  const maxUsableDeltaS = SSIV_THRESHOLDS.maxFrameDeltaS * (1 + deltaTolerance);
+  const maxUsableDeltaS = SSIV_THRESHOLDS.pilotMaxFrameDeltaS * (1 + deltaTolerance);
 
   // Everything that held still across the clip is removed before the water is
   // interrogated, so a streambed visible through shallow water cannot win the
@@ -949,7 +971,29 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const lateralVelocity = lateralSigned.length > 0 ? median(lateralSigned) : undefined;
   const speedMagnitude = speedValues.length > 0 ? median(speedValues) : undefined;
 
+  // What one pixel of displacement is worth here, in metres per second of
+  // surface velocity. A unit pixel step at the ROI's centre is pushed through
+  // the homography in each axis and combined, which gives the streamwise
+  // metres per pixel in the most favourable direction — the most generous
+  // reading of the setup's own resolution — and that is divided by the frame
+  // spacing the decoder actually achieved. Nothing below this figure was
+  // measured; it was interpolated between two samples of the correlation
+  // surface.
+  const roiCentrePixels = roiPolygon(roi)
+    .map((point) => toPixels(point, clip.width, clip.height))
+    .reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 });
+  const stepAlongX = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 1, 0);
+  const stepAlongY = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 0, 1);
+  const metresPerPixel =
+    stepAlongX && stepAlongY ? Math.hypot(stepAlongX.dyM, stepAlongY.dyM) : Number.NaN;
+  const medianFrameDeltaS = frameDeltas.length > 0 ? median(frameDeltas) : Number.NaN;
+  const velocityResolutionMs =
+    Number.isFinite(metresPerPixel) && medianFrameDeltaS > 0
+      ? metresPerPixel / medianFrameDeltaS
+      : Number.NaN;
+
   const quality: SsivQualitySummary = {
+    velocityResolutionMs,
     totalVectors: vectors.length,
     acceptedVectors: accepted.length,
     rejectedVectors: vectors.length - accepted.length,

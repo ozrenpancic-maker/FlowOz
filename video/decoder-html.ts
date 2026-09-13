@@ -23,6 +23,7 @@ export function buildDecoderHtml(): string {
   var canvas = document.getElementById('c');
   var context = canvas.getContext('2d', { willReadFrequently: true });
   var settled = false;
+  var loadedUri = null;
 
   function post(message) {
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -174,6 +175,18 @@ export function buildDecoderHtml(): string {
   window.__flowvisionDecode = function (payload) {
     try {
       var request = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      // A run is decoded in two passes: a short pilot that finds the frame
+      // spacing this water is actually measurable at, then the real pass at
+      // that spacing. The second call arrives after the first has already
+      // posted 'done', so the settled latch has to be released or the second
+      // pass would decode every pair and then never announce that it finished.
+      settled = false;
+      if (loadedUri === request.uri) {
+        // Same file, already loaded and seekable: skip the reload so the
+        // second pass does not pay the large-file load cost twice.
+        run(request.plan);
+        return true;
+      }
       video.onerror = function () {
         var code = video.error ? video.error.code : 'unknown';
         bail('VIDEO_ELEMENT_ERROR', 'media error code ' + code);
@@ -185,6 +198,7 @@ export function buildDecoderHtml(): string {
         }
         run(request.plan);
       };
+      loadedUri = request.uri;
       video.src = request.uri;
       video.load();
     } catch (error) {

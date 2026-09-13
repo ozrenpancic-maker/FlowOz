@@ -151,7 +151,7 @@ export function framePairFromMessage(
     }
   } else if (
     message.frameDeltaS < SSIV_THRESHOLDS.minFrameDeltaS / 2 ||
-    message.frameDeltaS > SSIV_THRESHOLDS.maxFrameDeltaS * 2
+    message.frameDeltaS > SSIV_THRESHOLDS.pilotMaxFrameDeltaS * 2
   ) {
     return {
       ok: false,

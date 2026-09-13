@@ -42,6 +42,20 @@ export const SSIV_THRESHOLDS = Object.freeze({
   minFrameDeltaS: 0.06,
   maxFrameDeltaS: 0.16,
   /**
+   * Longest spacing the pilot ladder will probe [s].
+   *
+   * This is the ceiling of a search, not a claim about how long a water
+   * surface stays recognisable: a spacing that has lost the pattern shows up
+   * in the pilot as correlations under the floor and is discarded on that
+   * evidence. What the ceiling does buy is reach at the slow end. On the
+   * field geometry that failed — a 2 m reference length across a 240 px
+   * working frame — one second of spacing puts the target displacement at
+   * roughly 0.13 m/s, where the old 0.16 s cap could not resolve anything
+   * under about 1.6 m/s without interpolating between two samples of the
+   * correlation surface.
+   */
+  pilotMaxFrameDeltaS: 1.0,
+  /**
    * How far the spacing the decoder achieved may drift from the one the plan
    * asked for before the pair is discarded. A seek lands on the nearest
    * decodable frame, so some drift is normal; past this the pair would put a
@@ -92,6 +106,7 @@ export type VectorRejectionReason =
   | 'HIGH_UNCERTAINTY'
   | 'FORWARD_BACKWARD_MISMATCH'
   | 'SEARCH_WINDOW_EDGE'
+  | 'UNRESOLVED_DISPLACEMENT'
   | 'DIRECTIONAL_OUTLIER'
   | 'SPATIAL_OUTLIER'
   | 'NON_FINITE';
@@ -282,6 +297,22 @@ export interface SsivQualitySummary {
   crossFlowRatio: number;
   /** crossFlowRatio past which the operator is warned the ROI may be misaligned. */
   crossFlowWarningRatio: number;
+  /**
+   * Surface velocity that one pixel of displacement corresponds to in this
+   * particular setup [m/s] — the ROI's own metric scale at its centre divided
+   * by the frame spacing actually achieved. It is the quantum of the whole
+   * measurement: nothing finer than this was measured, it was interpolated.
+   *
+   * It is reported because it is the number that decides whether a clip can
+   * answer the question at all, and it is fixed before the first correlation
+   * runs. Field evidence: a 2 m reference length across a 240 px working
+   * frame at 0.16 s spacing puts one pixel at roughly a quarter of a metre
+   * per second, so a channel genuinely running at 0.4 m/s moves about one
+   * pixel between the two frames of a pair — far too little to locate a
+   * correlation peak against, which is why that clip reported thousandths of
+   * a metre per second instead of the real speed.
+   */
+  velocityResolutionMs: number;
   /**
    * Distinct interrogation-grid columns (out of SSIV_THRESHOLDS.gridColumns)
    * represented among the vectors that fed the reported velocity. Confirmed

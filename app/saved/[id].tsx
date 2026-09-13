@@ -452,6 +452,15 @@ export default function MeasurementDetailScreen() {
                     value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
                   />
                   <ValueRow
+                    label={t('saved.technical.velocityResolution')}
+                    value={
+                      Number.isFinite(analysis.quality.velocityResolutionMs)
+                        ? `${formatNumber(analysis.quality.velocityResolutionMs, 4)} m/s`
+                        : '—'
+                    }
+                    detail={t('saved.technical.velocityResolutionHint')}
+                  />
+                  <ValueRow
                     label={t('saved.technical.staticBackground')}
                     value={
                       Number.isFinite(analysis.quality.staticBackgroundCorrelation)

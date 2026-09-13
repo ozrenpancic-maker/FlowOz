@@ -23,6 +23,16 @@ export interface FramePlanError {
   detail: string;
 }
 
+/** The part of the clip pairs may be taken from, skipping the unsettled ends. */
+function usableSpan(durationS: number): { start: number; span: number } | null {
+  if (!Number.isFinite(durationS) || durationS <= 0) return null;
+  // Skip the first and last 5% — the operator is usually still settling the
+  // phone there.
+  const margin = Math.min(0.25, durationS * 0.05);
+  const span = durationS - 2 * margin;
+  return span > 0 ? { start: margin, span } : null;
+}
+
 export function planFramePairs(
   durationS: number,
   options?: { pairCount?: number; minDeltaS?: number; maxDeltaS?: number }
@@ -72,6 +82,71 @@ export function planFramePairs(
     };
   }
 
+  return { ok: true, pairs };
+}
+
+/**
+ * The ladder of frame spacings the pilot probes, shortest first and stopping
+ * at whatever the clip is long enough to hold.
+ *
+ * The rungs double. A geometric ladder is what an unknown scale calls for:
+ * each rung doubles the displacement the same water produces, so a handful of
+ * them span the whole range of velocities a channel might be running at,
+ * where evenly spaced rungs would crowd one end and miss the other.
+ */
+export function pilotSpacings(durationS: number): number[] {
+  const usable = usableSpan(durationS);
+  if (usable === null) return [];
+  const spacings: number[] = [];
+  for (
+    let delta = SSIV_THRESHOLDS.minFrameDeltaS;
+    delta <= SSIV_THRESHOLDS.pilotMaxFrameDeltaS;
+    delta *= 2
+  ) {
+    // A rung has to fit inside the usable span with room to sit somewhere in
+    // it, not merely to exist.
+    if (delta >= usable.span) break;
+    spacings.push(delta);
+  }
+  return spacings;
+}
+
+/**
+ * One pair per rung of the ladder, spread across the clip so a single poor
+ * moment — a gust, a shadow crossing — does not decide the spacing for the
+ * whole run on its own.
+ */
+export function planPilotPairs(
+  durationS: number
+): { ok: true; pairs: PlannedPair[] } | { ok: false; error: FramePlanError } {
+  if (!Number.isFinite(durationS) || durationS <= 0) {
+    return { ok: false, error: { code: 'INVALID_DURATION', detail: `duration=${durationS}` } };
+  }
+  const usable = usableSpan(durationS);
+  const spacings = pilotSpacings(durationS);
+  if (!usable || spacings.length === 0) {
+    return {
+      ok: false,
+      error: { code: 'CLIP_TOO_SHORT', detail: `no pilot spacing fits in ${durationS.toFixed(3)} s` },
+    };
+  }
+
+  const pairs: PlannedPair[] = [];
+  spacings.forEach((frameDeltaS, index) => {
+    const slots = spacings.length;
+    const room = usable.span - frameDeltaS;
+    const firstS = usable.start + (slots === 1 ? 0 : (room * index) / (slots - 1));
+    const secondS = firstS + frameDeltaS;
+    if (secondS > durationS) return;
+    pairs.push({ index: pairs.length, firstS, secondS, frameDeltaS });
+  });
+
+  if (pairs.length === 0) {
+    return {
+      ok: false,
+      error: { code: 'CLIP_TOO_SHORT', detail: `no pilot pair fits in ${durationS.toFixed(3)} s` },
+    };
+  }
   return { ok: true, pairs };
 }
 

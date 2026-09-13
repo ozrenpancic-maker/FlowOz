@@ -165,6 +165,8 @@ export const hr: Record<keyof typeof en, string> = {
   'video.crossFlowNarrowColumn':
     'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
   'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
+  'video.velocityResolution': 'Razlučivost brzine (1 piksel pomaka)',
+  'video.velocityResolutionHint': 'Najmanja promjena brzine koju je ova postavka uopće mogla izmjeriti. Dobiva se iz tvoje izmjerene duljine ROI-a i stvarnog razmaka kadrova. Ako je stvarna brzina vode blizu ovog broja ili ispod njega, kamera je predaleko ili je ROI predug — sve ispod toga je interpolacija, ne mjerenje.',
   'video.staticBackground': 'Statična podloga u ROI-u (korelacija)',
   'video.sceneBackground': 'Statična scena izvan ROI-a (korelacija)',
   'video.backgroundSuppressed': 'uklonjena prije mjerenja',
@@ -356,6 +358,8 @@ export const hr: Record<keyof typeof en, string> = {
   'saved.technical.speedMagnitude': 'Ukupna brzina (dijagnostičko)',
   'saved.technical.crossFlowRatio': 'Omjer poprečnog toka',
   'saved.technical.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
+  'saved.technical.velocityResolution': 'Razlučivost brzine (1 piksel pomaka)',
+  'saved.technical.velocityResolutionHint': 'Najmanja promjena brzine koju je ova postavka uopće mogla izmjeriti, iz izmjerene duljine ROI-a i stvarnog razmaka kadrova.',
   'saved.technical.staticBackground': 'Statična podloga u ROI-u (korelacija)',
   'saved.technical.sceneBackground': 'Statična scena izvan ROI-a (korelacija)',
   'saved.technical.ssivSnr': 'SSIV SNR (medijan)',

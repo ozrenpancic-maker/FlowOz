@@ -793,6 +793,15 @@ export default function VideoVelocityScreen() {
             value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
           />
           <ValueRow
+            label={t('video.velocityResolution')}
+            value={
+              Number.isFinite(analysis.quality.velocityResolutionMs)
+                ? `${formatNumber(analysis.quality.velocityResolutionMs, 4)} m/s`
+                : '—'
+            }
+            detail={t('video.velocityResolutionHint')}
+          />
+          <ValueRow
             label={t('video.staticBackground')}
             value={
               Number.isFinite(analysis.quality.staticBackgroundCorrelation)
