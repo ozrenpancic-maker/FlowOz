@@ -198,6 +198,42 @@ function measurePair(
   return vectors;
 }
 
+/**
+ * What the correlation actually found, for a refusal to quote.
+ *
+ * A run that fails reports how many vectors survived, which the operator can
+ * already see and which suggests no next step. What separates "the water is
+ * not textured enough to track" from "the water moved further than the search
+ * could follow" from "the frames were too close together to see it move" is
+ * the displacement and correlation the grid produced, and the reasons the
+ * vectors were thrown out — so those are what a refusal says.
+ */
+function correlationDiagnostics(vectors: readonly SsivVector[]): string {
+  const displacements = vectors
+    .map((vector) => Math.hypot(vector.dxPx, vector.dyPx))
+    .filter((value) => Number.isFinite(value));
+  const correlations = vectors
+    .map((vector) => vector.correlation)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const reasons = new Map<VectorRejectionReason, number>();
+  for (const vector of vectors) {
+    if (vector.accepted || !vector.rejectionReason) continue;
+    reasons.set(vector.rejectionReason, (reasons.get(vector.rejectionReason) ?? 0) + 1);
+  }
+  const ranked = [...reasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([reason, count]) => `${reason} ${count}`)
+    .join(', ');
+  const displacement = displacements.length > 0 ? median(displacements).toFixed(2) : '—';
+  const correlation = correlations.length > 0 ? median(correlations).toFixed(2) : '—';
+  return (
+    `grid displacement ${displacement} px, correlation ${correlation} ` +
+    `(floor ${SSIV_THRESHOLDS.minCorrelation})` +
+    (ranked ? `; rejected mostly ${ranked}` : '')
+  );
+}
+
 /** What the per-point filters look at, common to per-pair and ensemble vectors. */
 interface PointMetrics {
   dxPx: number;
@@ -580,6 +616,41 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   }
   const homography: Homography = calibration.value;
 
+  // What one pixel of displacement is worth here, in metres per second of
+  // surface velocity. A unit pixel step at the ROI's centre is pushed through
+  // the homography in each axis and combined, which gives the streamwise
+  // metres per pixel in the most favourable direction — the most generous
+  // reading of the setup's own resolution — and that is divided by the frame
+  // spacing the decoder actually achieved. Nothing below this figure was
+  // measured; it was interpolated between two samples of the correlation
+  // surface.
+  //
+  // Computed here, before any correlation runs, because it is fixed by the
+  // operator's own ROI and the spacing alone — so every failure below can
+  // quote it, and a clip that could never have answered the question says so
+  // instead of leaving that to be worked out afterwards.
+  const roiCentrePixels = roiPolygon(roi)
+    .map((point) => toPixels(point, clip.width, clip.height))
+    .reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 });
+  const stepAlongX = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 1, 0);
+  const stepAlongY = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 0, 1);
+  const metresPerPixel =
+    stepAlongX && stepAlongY ? Math.hypot(stepAlongX.dyM, stepAlongY.dyM) : Number.NaN;
+  const medianFrameDeltaS =
+    clip.pairs.length > 0 ? median(clip.pairs.map((pair) => pair.frameDeltaS)) : Number.NaN;
+  const velocityResolutionMs =
+    Number.isFinite(metresPerPixel) && medianFrameDeltaS > 0
+      ? metresPerPixel / medianFrameDeltaS
+      : Number.NaN;
+  // Everything a refusal needs to be acted on, in one line: how the setup was
+  // sampled, and what the correlation actually found. Without it a failure
+  // says only that not enough vectors survived, which is the one thing the
+  // operator can already see and the one thing that suggests no next step.
+  const setupDiagnostics = () =>
+    `frame spacing ${medianFrameDeltaS.toFixed(3)} s, ` +
+    `scale ${metresPerPixel.toFixed(4)} m/px, ` +
+    `so one pixel of travel is ${velocityResolutionMs.toFixed(3)} m/s`;
+
   // ZNCC already removes each window's own mean and scales by its own
   // variance (see correlateAt), which is what a high-pass filter would try to
   // do for illumination gradients narrower than a window. A filter wide
@@ -774,13 +845,18 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     );
   if (!anyTexture) {
     return err(
-      ssivFailure('INSUFFICIENT_TEXTURE', `median correlation ${medianCorrelation.toFixed(3)}`, {
+      ssivFailure(
+        'INSUFFICIENT_TEXTURE',
+        `median correlation ${medianCorrelation.toFixed(3)}; ` +
+          `${correlationDiagnostics(allVectors)}; ${setupDiagnostics()}`,
+        {
         totalVectors: allVectors.length,
         acceptedVectors: 0,
         medianCorrelation,
-        stablePairs: stablePairs.length,
-        totalPairs: clip.pairs.length,
-      })
+          stablePairs: stablePairs.length,
+          totalPairs: clip.pairs.length,
+        }
+      )
     );
   }
 
@@ -869,7 +945,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
           `${SSIV_THRESHOLDS.minAcceptedEnsembleNodes} nodes required` +
           (mistimedPairs.length > 0
             ? ` (${mistimedPairs.length} pair(s) dropped for frame spacing)`
-            : ''),
+            : '') +
+          `; ${correlationDiagnostics(vectors)}; ${setupDiagnostics()}`,
         {
           totalVectors: vectors.length,
           acceptedVectors: accepted.length,
@@ -935,7 +1012,8 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
           `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the median streamwise ` +
           `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s ` +
           `against a spread of ${noiseFloor.toFixed(6)} m/s — ` +
-          'no net downstream motion was measured',
+          `no net downstream motion was measured; ${correlationDiagnostics(vectors)}; ` +
+          setupDiagnostics(),
         {
           totalVectors: vectors.length,
           acceptedVectors: accepted.length,
@@ -976,27 +1054,6 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     .filter((value): value is number => Number.isFinite(value));
   const lateralVelocity = lateralSigned.length > 0 ? median(lateralSigned) : undefined;
   const speedMagnitude = speedValues.length > 0 ? median(speedValues) : undefined;
-
-  // What one pixel of displacement is worth here, in metres per second of
-  // surface velocity. A unit pixel step at the ROI's centre is pushed through
-  // the homography in each axis and combined, which gives the streamwise
-  // metres per pixel in the most favourable direction — the most generous
-  // reading of the setup's own resolution — and that is divided by the frame
-  // spacing the decoder actually achieved. Nothing below this figure was
-  // measured; it was interpolated between two samples of the correlation
-  // surface.
-  const roiCentrePixels = roiPolygon(roi)
-    .map((point) => toPixels(point, clip.width, clip.height))
-    .reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 });
-  const stepAlongX = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 1, 0);
-  const stepAlongY = metricDisplacement(homography, roiCentrePixels.x, roiCentrePixels.y, 0, 1);
-  const metresPerPixel =
-    stepAlongX && stepAlongY ? Math.hypot(stepAlongX.dyM, stepAlongY.dyM) : Number.NaN;
-  const medianFrameDeltaS = frameDeltas.length > 0 ? median(frameDeltas) : Number.NaN;
-  const velocityResolutionMs =
-    Number.isFinite(metresPerPixel) && medianFrameDeltaS > 0
-      ? metresPerPixel / medianFrameDeltaS
-      : Number.NaN;
 
   const quality: SsivQualitySummary = {
     velocityResolutionMs,

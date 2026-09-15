@@ -312,7 +312,18 @@ export default function MeasurementDetailScreen() {
             ) : (
               <>
                 <Muted>{t('saved.videoPreview')}</Muted>
-                <View style={styles.videoFrame}>
+                <View
+                  style={[
+                    styles.videoFrame,
+                    // The frame the decoder actually read, which for a portrait
+                    // clip is not the frame the file stores: matching it here
+                    // makes "contain" an exact fit instead of letterboxing the
+                    // video into a strip inside a 16:9 box.
+                    analysis && analysis.sourceWidth > 0 && analysis.sourceHeight > 0
+                      ? { aspectRatio: analysis.sourceWidth / analysis.sourceHeight }
+                      : null,
+                  ]}
+                >
                   <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="contain" />
                   {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
                 </View>

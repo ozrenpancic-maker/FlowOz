@@ -165,6 +165,8 @@ export const hr: Record<keyof typeof en, string> = {
   'video.crossFlowNarrowColumn':
     'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
   'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
+  'video.roiScale': 'Mjerilo ROI-a (metara po pikselu)',
+  'video.roiScaleHint': 'Koliko stvarnih metara pokriva jedan piksel analize, prema tvojim upisanim dimenzijama i nacrtanom ROI-ju. Ako dva mjerenja istog kanala daju jako različit broj ovdje, ROI i upisane dimenzije se ne poklapaju — brzine će se razlikovati u istom omjeru.',
   'video.velocityResolution': 'Razlučivost brzine (1 piksel pomaka)',
   'video.velocityResolutionHint': 'Najmanja promjena brzine koju je ova postavka uopće mogla izmjeriti. Dobiva se iz tvoje izmjerene duljine ROI-a i stvarnog razmaka kadrova. Ako je stvarna brzina vode blizu ovog broja ili ispod njega, kamera je predaleko ili je ROI predug — sve ispod toga je interpolacija, ne mjerenje.',
   'video.staticBackground': 'Statična podloga u ROI-u (korelacija)',

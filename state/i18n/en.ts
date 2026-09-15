@@ -166,6 +166,8 @@ export const en = {
   'video.crossFlowNarrowColumn':
     'MORE LIKELY CAUSE: the result comes from a single grid column of the ROI (see "Distinct grid columns" below) while the rest of the grid was rejected for weak correlation. That is the signature of that edge of the ROI sitting on the bank, a rock, or other static ground rather than water — not a misaligned flow direction. Narrow the ROI to cover only the water surface and re-run the measurement.',
   'video.distinctAcceptedColumns': 'Distinct grid columns in result',
+  'video.roiScale': 'ROI scale (metres per pixel)',
+  'video.roiScaleHint': 'How much real channel one analysis pixel covers, from the dimensions you typed and the ROI you drew. If two measurements of the same channel give very different numbers here, the ROI and the typed dimensions disagree — the velocities will differ by the same factor.',
   'video.velocityResolution': 'Velocity resolution (one pixel of travel)',
   'video.velocityResolutionHint': 'The smallest change in velocity this setup could measure at all, from your measured ROI length and the frame spacing actually used. If the water\'s real speed is near this figure or below it, the camera is too far back or the ROI too long — anything under it is interpolation, not measurement.',
   'video.staticBackground': 'Static ground under the ROI (correlation)',

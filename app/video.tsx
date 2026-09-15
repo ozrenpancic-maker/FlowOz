@@ -14,9 +14,9 @@ import { formatNumber, parseNumericInput } from '../domain/units';
 import { persistMedia, type StoredMedia } from '../storage/media-storage';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
-import { buildCalibration, translateRoi } from '../video/homography';
+import { buildCalibration, metricDisplacement, translateRoi } from '../video/homography';
 import type { SsivFailure } from '../video/failure-taxonomy';
-import { defaultRoi, validateRoi } from '../video/roi';
+import { defaultRoi, roiPolygon, toPixels, validateRoi } from '../video/roi';
 import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
 import { lateralVelocityProfile } from '../video/lateral-profile';
 import { classifyStability, type MotionSummary, type SensorSnapshot } from '../domain/sensor-snapshot';
@@ -27,6 +27,7 @@ import { captureDeviceInfo } from '../sensors/device-info';
 import { RoiEditor } from '../ui/RoiEditor';
 import { VectorOverlay } from '../ui/VectorOverlay';
 import { SsivProcessor, type SsivProgress, type SsivRequest } from '../ui/SsivProcessor';
+import { VideoMetadataProbe, type VideoFrameSize } from '../ui/VideoMetadataProbe';
 import {
   Badge,
   Button,
@@ -133,10 +134,24 @@ export default function VideoVelocityScreen() {
   // crop a differently-shaped source, and every point the operator taps would
   // land on the wrong part of the frame the SSIV pipeline actually decodes.
   const { videoTrack } = useEvent(player, 'videoTrackChange', { videoTrack: player.videoTrack });
-  const videoInfoReady = Boolean(videoTrack && videoTrack.size.width > 0 && videoTrack.size.height > 0);
+  // Not videoTrack.size: that is the frame as stored, and a phone records a
+  // portrait clip as a landscape frame plus a rotation flag. For every
+  // portrait video it is the wrong way round, which showed up as the clip
+  // letterboxed into a 16:9 box as a narrow vertical strip — and, less
+  // visibly, as a tap's horizontal position being recorded against the box
+  // rather than against the strip inside it. The probe asks the same decoder
+  // that will analyse the clip, so the editor and the analysis agree on the
+  // shape of the frame by construction.
+  const [decodedSize, setDecodedSize] = useState<VideoFrameSize | null>(null);
+  const probedUriRef = useRef<string | null>(null);
+  if (videoUri !== probedUriRef.current) {
+    probedUriRef.current = videoUri;
+    if (decodedSize !== null) setDecodedSize(null);
+  }
+  const videoInfoReady = Boolean(decodedSize && decodedSize.width > 0 && decodedSize.height > 0);
   const roiAspectRatio =
-    videoTrack && videoTrack.size.width > 0 && videoTrack.size.height > 0
-      ? videoTrack.size.width / videoTrack.size.height
+    decodedSize && decodedSize.width > 0 && decodedSize.height > 0
+      ? decodedSize.width / decodedSize.height
       : 16 / 9;
 
   const widthM = parseNumericInput(widthText);
@@ -154,6 +169,23 @@ export default function VideoVelocityScreen() {
     ? buildCalibration(roi, knownDimensions, workingFrameWidth, workingFrameHeight)
     : null;
   const roiProblems = validateRoi(roi, knownDimensions ?? undefined);
+
+  // The scale the ROI and the typed dimensions imply, shown before the run.
+  // Two measurements of the same channel minutes apart came out six times
+  // apart because this differed between them, and nothing on the screen said
+  // so until the result was already wrong. It is fixed the moment the ROI and
+  // the dimensions are in, so it belongs here rather than in the report.
+  const previewMetresPerPixel = (() => {
+    if (!calibrationPreview?.ok) return null;
+    const centre = roiPolygon(roi)
+      .map((point) => toPixels(point, workingFrameWidth, workingFrameHeight))
+      .reduce((sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }), { x: 0, y: 0 });
+    const alongX = metricDisplacement(calibrationPreview.value, centre.x, centre.y, 1, 0);
+    const alongY = metricDisplacement(calibrationPreview.value, centre.x, centre.y, 0, 1);
+    if (!alongX || !alongY) return null;
+    const scale = Math.hypot(alongX.dyM, alongY.dyM);
+    return Number.isFinite(scale) && scale > 0 ? scale : null;
+  })();
 
   const nudgeStepM = parseNumericInput(nudgeStepText);
   // Re-place the ROI at an exact real-world offset via the homography,
@@ -567,7 +599,7 @@ export default function VideoVelocityScreen() {
                 onChange={setRoi}
                 pointLabel={t('video.roiPoint')}
                 aspectRatio={roiAspectRatio}
-                sourceSize={videoTrack?.size}
+                sourceSize={decodedSize ?? undefined}
                 fit="contain"
                 flowDirection={flowDirection}
               >
@@ -678,6 +710,11 @@ export default function VideoVelocityScreen() {
             invalid={lengthText !== '' && (lengthM === null || lengthM <= 0)}
           />
 
+          <ValueRow
+            label={t('video.roiScale')}
+            value={previewMetresPerPixel ? `${formatNumber(previewMetresPerPixel, 4)} m/px` : '—'}
+            detail={t('video.roiScaleHint')}
+          />
           <ValueRow
             label={t('video.calibrationStatus')}
             value={
@@ -920,6 +957,9 @@ export default function VideoVelocityScreen() {
         </Card>
       ) : null}
 
+      {videoUri && !decodedSize ? (
+        <VideoMetadataProbe uri={videoUri} onResolved={setDecodedSize} />
+      ) : null}
       <SsivProcessor request={request} onResult={handleResult} onProgress={setProgress} />
     </Screen>
   );
