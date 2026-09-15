@@ -123,10 +123,10 @@ export const en = {
   'video.roiWaitingForVideoInfo':
     'Waiting for the video’s real dimensions before allowing ROI points to be placed — this can take a few seconds for larger imported files. This prevents a point silently landing in the wrong place from a guessed aspect ratio.',
   'video.knownDimensions': 'Measured ROI dimensions',
-  'video.roiWidth': 'Measured water width',
-  'video.roiLength': 'Measured reference length',
+  'video.roiWidth': 'Real ROI width (cross-stream)',
+  'video.roiLength': 'Real ROI length (streamwise)',
   'video.scaleHint':
-    'The measured water width (cross-stream) and reference length (streamwise) are the only supported metric scale. There is no pixel-scale fallback.',
+    'These are the real dimensions of the rectangle you drew on the water, not the width of the whole channel. The ROI need not reach the banks — a smaller ROI out in the water is better, because it leaves textured stationary bank outside it for the camera-stability check and keeps grid points off rock and dry bed. The cross-section area for discharge comes from the channel geometry and depth you enter separately, not from here. The one exception is the lateral-profile cross-check, which assumes the ROI spans the flow: with an ROI covering only midstream that figure overstates the discharge, while the main result stays correct. This is the only supported metric scale; there is no pixel-scale fallback.',
   'video.flowDirection.title': 'Flow direction',
   'video.flowDirection.forward': 'Edge 1–2 → 4–3',
   'video.flowDirection.reversed': 'Edge 4–3 → 1–2 (reversed)',
