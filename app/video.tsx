@@ -17,6 +17,7 @@ import { useSettings } from '../state/settings-context';
 import { buildCalibration, metricDisplacement, translateRoi } from '../video/homography';
 import type { SsivFailure } from '../video/failure-taxonomy';
 import { defaultRoi, roiPolygon, toPixels, validateRoi } from '../video/roi';
+import { rectifyRoi } from '../video/rectangle';
 import { SSIV_THRESHOLDS, type SsivAnalysis } from '../video/types';
 import { lateralVelocityProfile } from '../video/lateral-profile';
 import { classifyStability, type MotionSummary, type SensorSnapshot } from '../domain/sensor-snapshot';
@@ -169,6 +170,19 @@ export default function VideoVelocityScreen() {
     ? buildCalibration(roi, knownDimensions, workingFrameWidth, workingFrameHeight)
     : null;
   const roiProblems = validateRoi(roi, knownDimensions ?? undefined);
+
+  // The streamwise length, read off the ROI's own perspective instead of
+  // measured. There is nothing on open water to stretch a tape along, so that
+  // figure gets estimated — and it is the whole scale: two measurements of
+  // this channel minutes apart came out 6.7x apart from exactly that. A
+  // rectangle photographed at an angle carries its own proportions, so the
+  // operator supplies the width, which a tape does reach, and this supplies
+  // the rest. See video/rectangle.ts for when the geometry allows it.
+  const rectified = videoInfoReady
+    ? rectifyRoi(roi, workingFrameWidth, workingFrameHeight)
+    : null;
+  const derivedLengthM =
+    rectified?.ok && widthM !== null && widthM > 0 ? widthM * rectified.value.aspectRatio : null;
 
   // The scale the ROI and the typed dimensions imply, shown before the run.
   // Two measurements of the same channel minutes apart came out six times
@@ -709,6 +723,36 @@ export default function VideoVelocityScreen() {
             onChangeText={setLengthText}
             invalid={lengthText !== '' && (lengthM === null || lengthM <= 0)}
           />
+
+          {derivedLengthM !== null && rectified?.ok ? (
+            <>
+              <ValueRow
+                label={t('video.derivedLength')}
+                value={`${formatNumber(derivedLengthM, 2)} m`}
+                detail={t(
+                  rectified.value.focalLengthSource === 'known'
+                    ? 'video.derivedLengthHint'
+                    : 'video.derivedLengthFromShapeHint'
+                )}
+              />
+              <Button
+                label={t('video.useDerivedLength')}
+                variant="secondary"
+                onPress={() => setLengthText(formatNumber(derivedLengthM, 3))}
+              />
+              {rectified.value.edgeDisagreement > 0.05 ? (
+                <Note tone="warning">{t('video.derivedLengthNotRectangle')}</Note>
+              ) : null}
+            </>
+          ) : rectified && !rectified.ok ? (
+            <Muted>
+              {t(
+                rectified.error.code === 'EDGES_TOO_PARALLEL'
+                  ? 'video.derivedLengthTooParallel'
+                  : 'video.derivedLengthUnavailable'
+              )}
+            </Muted>
+          ) : null}
 
           <ValueRow
             label={t('video.roiScale')}

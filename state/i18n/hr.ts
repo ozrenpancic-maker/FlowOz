@@ -165,6 +165,13 @@ export const hr: Record<keyof typeof en, string> = {
   'video.crossFlowNarrowColumn':
     'VJEROJATNIJI UZROK: rezultat dolazi iz samo jednog stupca mreže ROI-a (vidi "Različiti stupci mreže" ispod) dok je ostatak mreže odbačen zbog preslabe korelacije. To je tipičan znak da taj rub ROI-a leži na obali, kamenju ili drugoj nepokretnoj podlozi umjesto na vodi, a ne da je ROI pogrešno poravnat s tokom. Suzite ROI tako da obuhvaća isključivo vodenu površinu i ponovite mjerenje.',
   'video.distinctAcceptedColumns': 'Različiti stupci mreže u rezultatu',
+  'video.derivedLength': 'Izračunata duljina iz perspektive',
+  'video.derivedLengthHint': 'Duljinu niz tok nije potrebno mjeriti — izračunata je iz oblika ROI-a i žarišne duljine kamere. Usporedi je s onim što vidiš na terenu prije nego je upotrijebiš.',
+  'video.derivedLengthFromShapeHint': 'Duljina niz tok pročitana je iz same perspektive ROI-a: pravokutnik snimljen pod kutom nosi vlastite omjere. Usporedi je s onim što vidiš na terenu prije nego je upotrijebiš.',
+  'video.useDerivedLength': 'Upotrijebi izračunatu duljinu',
+  'video.derivedLengthNotRectangle': 'Nasuprotni rubovi ROI-a ne slažu se oko duljine — četiri točke vjerojatno ne čine pravokutnik na vodnoj ravnini. Izračunata duljina je nepouzdana dok to ne popraviš.',
+  'video.derivedLengthTooParallel': 'Duljina se ne može izračunati: kadar je poravnat s kanalom pa poprečni rubovi ostaju paralelni i perspektiva ne daje dovoljno. Zakreni telefon nekoliko stupnjeva od osi kanala, ili upiši duljinu ručno.',
+  'video.derivedLengthUnavailable': 'Duljina se ne može izračunati iz ove geometrije — upiši je ručno.',
   'video.roiScale': 'Mjerilo ROI-a (metara po pikselu)',
   'video.roiScaleHint': 'Koliko stvarnih metara pokriva jedan piksel analize, prema tvojim upisanim dimenzijama i nacrtanom ROI-ju. Ako dva mjerenja istog kanala daju jako različit broj ovdje, ROI i upisane dimenzije se ne poklapaju — brzine će se razlikovati u istom omjeru.',
   'video.windowCoverage': 'Korelacijski prozor pokriva',

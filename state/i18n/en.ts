@@ -166,6 +166,13 @@ export const en = {
   'video.crossFlowNarrowColumn':
     'MORE LIKELY CAUSE: the result comes from a single grid column of the ROI (see "Distinct grid columns" below) while the rest of the grid was rejected for weak correlation. That is the signature of that edge of the ROI sitting on the bank, a rock, or other static ground rather than water — not a misaligned flow direction. Narrow the ROI to cover only the water surface and re-run the measurement.',
   'video.distinctAcceptedColumns': 'Distinct grid columns in result',
+  'video.derivedLength': 'Length derived from the perspective',
+  'video.derivedLengthHint': 'The streamwise length need not be measured — it follows from the ROI\'s shape and the camera\'s focal length. Compare it against what you see on the ground before using it.',
+  'video.derivedLengthFromShapeHint': 'The streamwise length was read out of the ROI\'s own perspective: a rectangle photographed at an angle carries its own proportions. Compare it against what you see on the ground before using it.',
+  'video.useDerivedLength': 'Use the derived length',
+  'video.derivedLengthNotRectangle': 'Opposite ROI edges disagree about the length — the four points are probably not a rectangle on the water plane. The derived length is unreliable until that is fixed.',
+  'video.derivedLengthTooParallel': 'The length cannot be derived: the shot is aligned with the channel, so the cross-stream edges stay parallel and the perspective gives too little away. Turn the phone a few degrees off the channel axis, or enter the length by hand.',
+  'video.derivedLengthUnavailable': 'The length cannot be derived from this geometry — enter it by hand.',
   'video.roiScale': 'ROI scale (metres per pixel)',
   'video.roiScaleHint': 'How much real channel one analysis pixel covers, from the dimensions you typed and the ROI you drew. If two measurements of the same channel give very different numbers here, the ROI and the typed dimensions disagree — the velocities will differ by the same factor.',
   'video.windowCoverage': 'Correlation window covers',
