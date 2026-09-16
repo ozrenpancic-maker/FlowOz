@@ -172,6 +172,12 @@ function plausibilityValues(draft: MeasurementDraft): Record<string, number | nu
     case 'trapezoidal':
       values.bottomWidth = draft.dimensions.bottomWidth;
       break;
+    case 'irregular':
+      // A station survey has no single named dimension to plausibility-check
+      // against a typical range — ordering and non-negative depth are already
+      // enforced by irregularSection itself, at the point the section is
+      // actually computed.
+      break;
   }
   if (draft.method === 'manning') {
     values.roughness = draft.roughness;

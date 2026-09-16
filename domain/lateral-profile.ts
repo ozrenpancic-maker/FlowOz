@@ -1,4 +1,4 @@
-import type { Dimensions } from './types';
+import type { CrossSectionStation, Dimensions } from './types';
 import { isPositiveFinite } from './units';
 import { resolveSideSlope } from './geometry';
 import { err, ok, type FailureBase, type Result } from './result';
@@ -105,6 +105,31 @@ export function localDepth(dimensions: Dimensions, depth: number, u: number): nu
         return zR > 0 ? Math.max(0, depth - (x - b) / zR) : 0;
       }
       return depth; // over the flat bed
+    }
+
+    case 'irregular': {
+      // The station table already IS the local depth, at every distance it
+      // was actually measured at; `depth` (the caller's scalar water depth)
+      // plays no part here, same as in computeSection. Between two measured
+      // stations the same straight-line approximation the mid-section method
+      // itself makes about what happens there is used again, for consistency
+      // with the area the two are meant to agree on.
+      const stations = dimensions.stations;
+      if (stations.length < 2) return null;
+      const first = stations[0] as CrossSectionStation;
+      const last = stations[stations.length - 1] as CrossSectionStation;
+      const topWidth = last.distanceM - first.distanceM;
+      if (!isPositiveFinite(topWidth)) return null;
+      const x = first.distanceM + u * topWidth;
+      for (let i = 1; i < stations.length; i += 1) {
+        const a = stations[i - 1] as CrossSectionStation;
+        const b = stations[i] as CrossSectionStation;
+        if (x > b.distanceM && i < stations.length - 1) continue;
+        const span = b.distanceM - a.distanceM;
+        const t = span > 0 ? (x - a.distanceM) / span : 0;
+        return Math.max(0, a.depthM + t * (b.depthM - a.depthM));
+      }
+      return Math.max(0, last.depthM);
     }
 
     default: {

@@ -4,7 +4,7 @@ import {
   localDepth,
   type LateralVelocityColumn,
 } from '../../domain/lateral-profile';
-import { circularSection, rectangularSection, trapezoidalSection } from '../../domain/geometry';
+import { circularSection, irregularSection, rectangularSection, trapezoidalSection } from '../../domain/geometry';
 import type { Dimensions } from '../../domain/types';
 
 /**
@@ -115,6 +115,68 @@ describe('local depth profile', () => {
     expect(localDepth(dims, 0.5, 1.01)).toBeNull();
     expect(localDepth(dims, 0, 0.5)).toBeNull();
     expect(localDepth(dims, NaN, 0.5)).toBeNull();
+  });
+
+  describe('irregular (field survey)', () => {
+    // The `depth` argument is ignored by this shape's own computation — each
+    // station already carries its depth — but the function's shared guard
+    // still requires a positive number before it looks at the shape at all,
+    // so a dummy value is passed through every case below.
+    const DUMMY_DEPTH = 1;
+
+    it('reads the depth straight off the surveyed stations, exactly at each one', () => {
+      const dims: Dimensions = {
+        kind: 'irregular',
+        stations: [
+          { distanceM: 0, depthM: 0 },
+          { distanceM: 0.6, depthM: 0.35 },
+          { distanceM: 1.2, depthM: 0.1 },
+          { distanceM: 1.8, depthM: 0 },
+        ],
+      };
+      // u maps 0..1 onto the survey's own 0..1.8 m span.
+      expect(localDepth(dims, DUMMY_DEPTH, 0)).toBeCloseTo(0, 9);
+      expect(localDepth(dims, DUMMY_DEPTH, 0.6 / 1.8)).toBeCloseTo(0.35, 9);
+      expect(localDepth(dims, DUMMY_DEPTH, 1.2 / 1.8)).toBeCloseTo(0.1, 9);
+      expect(localDepth(dims, DUMMY_DEPTH, 1)).toBeCloseTo(0, 9);
+    });
+
+    it('interpolates linearly between two surveyed stations', () => {
+      const dims: Dimensions = {
+        kind: 'irregular',
+        stations: [
+          { distanceM: 0, depthM: 0 },
+          { distanceM: 1, depthM: 0.4 },
+        ],
+      };
+      expect(localDepth(dims, DUMMY_DEPTH, 0.5)).toBeCloseTo(0.2, 9);
+      expect(localDepth(dims, DUMMY_DEPTH, 0.25)).toBeCloseTo(0.1, 9);
+    });
+
+    it('numerically integrates back to the same area irregularSection reports', () => {
+      const dims: Dimensions = {
+        kind: 'irregular',
+        stations: [
+          { distanceM: 0, depthM: 0 },
+          { distanceM: 0.3, depthM: 0.22 },
+          { distanceM: 0.9, depthM: 0.4 },
+          { distanceM: 1.3, depthM: 0.12 },
+          { distanceM: 1.6, depthM: 0 },
+        ],
+      };
+      const section = irregularSection(dims);
+      expect(section.ok).toBe(true);
+      if (!section.ok) return;
+      expect(numericArea(dims, DUMMY_DEPTH, section.value.topWidth)).toBeCloseTo(
+        section.value.area,
+        2
+      );
+    });
+
+    it('refuses fewer than two stations', () => {
+      const dims: Dimensions = { kind: 'irregular', stations: [{ distanceM: 0, depthM: 0 }] };
+      expect(localDepth(dims, DUMMY_DEPTH, 0.5)).toBeNull();
+    });
   });
 });
 

@@ -89,6 +89,15 @@ function dimensionRows(measurement: SavedMeasurement): ReportValue[] {
         value: `${describeSlope(dimensions.leftSlope)} / ${describeSlope(dimensions.rightSlope)}`,
       });
       break;
+    case 'irregular':
+      rows.push(numberRow('report.stationCount', dimensions.stations.length, 0));
+      dimensions.stations.forEach((station, index) => {
+        rows.push({
+          labelKey: 'report.station',
+          value: `#${index + 1}: x=${formatNumber(station.distanceM, 3)} m, h=${formatNumber(station.depthM, 3)} m`,
+        });
+      });
+      break;
   }
   return rows;
 }

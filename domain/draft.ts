@@ -24,6 +24,18 @@ export function emptyDimensions(kind: Dimensions['kind']): Dimensions {
         leftSlope: { mode: 'ratio', value: 1 },
         rightSlope: { mode: 'ratio', value: 1 },
       };
+    case 'irregular':
+      // Three stations, banks to a shallow midpoint: the minimum a survey
+      // needs to describe a shape at all, and a starting point to edit from
+      // rather than an empty list with nothing to anchor the first edit to.
+      return {
+        kind: 'irregular',
+        stations: [
+          { distanceM: 0, depthM: 0 },
+          { distanceM: 0.6, depthM: 0.2 },
+          { distanceM: 1.2, depthM: 0 },
+        ],
+      };
   }
 }
 

@@ -1,6 +1,8 @@
 import type {
   CircularDimensions,
+  CrossSectionStation,
   Dimensions,
+  IrregularDimensions,
   RectangularDimensions,
   SectionProperties,
   SideSlopeInput,
@@ -16,7 +18,10 @@ export type GeometryErrorCode =
   | 'DEPTH_EXCEEDS_SECTION'
   | 'PIPE_FULL_NOT_OPEN_CHANNEL'
   | 'INVALID_SIDE_SLOPE'
-  | 'DEGENERATE_SECTION';
+  | 'DEGENERATE_SECTION'
+  | 'TOO_FEW_STATIONS'
+  | 'STATIONS_NOT_ORDERED'
+  | 'NEGATIVE_STATION_DEPTH';
 
 export interface GeometryError extends FailureBase<GeometryErrorCode> {
   /** Which field the operator has to correct. */
@@ -175,6 +180,119 @@ export function trapezoidalSection(
   });
 }
 
+/** Fewer than this cannot describe a shape — see {@link irregularSection}. */
+export const MIN_IRREGULAR_STATIONS = 3;
+
+/**
+ * Wetted section from a field survey of depths across the channel, by the
+ * mid-section method (ISO 748 / USGS gauging practice): each station's own
+ * depth is applied across half the distance to its neighbour on either side.
+ *
+ *   Ai = di · ((xi − xi-1)/2 + (xi+1 − xi)/2)
+ *
+ * with the half missing at each end, so the two edge stations — normally the
+ * waterline at each bank, depth 0 — contribute only the half-panel reaching
+ * inward. Uneven spacing is handled exactly, not as a special case: a station
+ * added at a rock or a ledge simply gets its own, narrower panel, which is
+ * the whole point of allowing arbitrary station positions instead of a fixed
+ * interval.
+ *
+ * Wetted perimeter sums the slant distance between consecutive stations. A
+ * bank station with non-zero depth (a vertical wall the water sits flush
+ * against, rather than a taper to the waterline) under-states the true
+ * perimeter by whatever vertical wall lies above that station and was not
+ * surveyed — a known simplification, and one that does not affect the
+ * video-based discharge at all, since that path uses area alone.
+ */
+export function irregularSection(
+  dimensions: IrregularDimensions
+): Result<SectionProperties, GeometryError> {
+  const stations = dimensions.stations;
+  if (stations.length < MIN_IRREGULAR_STATIONS) {
+    return fail(
+      'TOO_FEW_STATIONS',
+      'stations',
+      `${stations.length} < ${MIN_IRREGULAR_STATIONS}`
+    );
+  }
+  for (const station of stations) {
+    if (!Number.isFinite(station.distanceM) || !Number.isFinite(station.depthM)) {
+      return fail(
+        'NON_FINITE_INPUT',
+        'stations',
+        `x=${station.distanceM}, h=${station.depthM}`
+      );
+    }
+    if (station.depthM < 0) {
+      return fail(
+        'NEGATIVE_STATION_DEPTH',
+        'stations',
+        `h=${station.depthM} at x=${station.distanceM}`
+      );
+    }
+  }
+  for (let i = 1; i < stations.length; i += 1) {
+    const previous = stations[i - 1] as CrossSectionStation;
+    const current = stations[i] as CrossSectionStation;
+    if (current.distanceM <= previous.distanceM) {
+      return fail(
+        'STATIONS_NOT_ORDERED',
+        'stations',
+        `x[${i}]=${current.distanceM} <= x[${i - 1}]=${previous.distanceM}`
+      );
+    }
+  }
+
+  const areas = stationAreas(stations);
+  const area = areas.reduce((sum, value) => sum + value, 0);
+
+  let wettedPerimeter = 0;
+  for (let i = 1; i < stations.length; i += 1) {
+    const previous = stations[i - 1] as CrossSectionStation;
+    const current = stations[i] as CrossSectionStation;
+    wettedPerimeter += Math.hypot(
+      current.distanceM - previous.distanceM,
+      current.depthM - previous.depthM
+    );
+  }
+
+  const first = stations[0] as CrossSectionStation;
+  const last = stations[stations.length - 1] as CrossSectionStation;
+  const topWidth = last.distanceM - first.distanceM;
+
+  if (!isPositiveFinite(area) || !isPositiveFinite(topWidth)) {
+    return fail('DEGENERATE_SECTION', 'stations', `A=${area}, T=${topWidth}`);
+  }
+
+  return ok({
+    area,
+    wettedPerimeter,
+    topWidth,
+    hydraulicRadius: area / wettedPerimeter,
+  });
+}
+
+/**
+ * Each station's own share of the mid-section area, in survey order — the
+ * breakdown `irregularSection` sums, exposed separately so the operator can
+ * be shown which single station is carrying too much of the section while
+ * they are still placing them, rather than only after the fact.
+ *
+ * No validation here: called from a live editor where the stations are
+ * mid-edit and may briefly be out of order or too few. `irregularSection`
+ * is where an actual calculation enforces the real constraints.
+ */
+export function stationAreas(stations: readonly CrossSectionStation[]): number[] {
+  return stations.map((station, i) => {
+    const previous = stations[i - 1];
+    const next = stations[i + 1];
+    const leftHalf = previous ? (station.distanceM - previous.distanceM) / 2 : 0;
+    const rightHalf = next ? (next.distanceM - station.distanceM) / 2 : 0;
+    const width = leftHalf + rightHalf;
+    return Number.isFinite(width) && width > 0 ? station.depthM * width : 0;
+  });
+}
+
 /** Dispatch to the section solver that matches the geometry. */
 export function computeSection(
   dimensions: Dimensions,
@@ -187,6 +305,11 @@ export function computeSection(
       return rectangularSection(dimensions, depth);
     case 'trapezoidal':
       return trapezoidalSection(dimensions, depth);
+    case 'irregular':
+      // depth is unused here: each station already carries its own, and
+      // there is no separate scalar to combine them with — see
+      // IrregularDimensions's own comment.
+      return irregularSection(dimensions);
     default: {
       const exhaustive: never = dimensions;
       return fail('DEGENERATE_SECTION', undefined, JSON.stringify(exhaustive));
@@ -203,6 +326,10 @@ export function maximumDepth(dimensions: Dimensions): number | null {
       return isPositiveFinite(dimensions.totalHeight) ? dimensions.totalHeight : null;
     case 'trapezoidal':
       return null;
+    case 'irregular':
+      return dimensions.stations.length > 0
+        ? Math.max(...dimensions.stations.map((station) => station.depthM))
+        : null;
     default:
       return null;
   }

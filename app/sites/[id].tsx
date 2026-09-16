@@ -103,6 +103,9 @@ export default function SiteDetailScreen() {
         {site.draft.dimensions.kind === 'trapezoidal' ? (
           <ValueRow label="b" value={formatNumber(site.draft.dimensions.bottomWidth, 4)} unit="m" />
         ) : null}
+        {site.draft.dimensions.kind === 'irregular' ? (
+          <ValueRow label="n" value={String(site.draft.dimensions.stations.length)} />
+        ) : null}
         <Muted>{t('measure.depthHint')}</Muted>
       </Card>
 

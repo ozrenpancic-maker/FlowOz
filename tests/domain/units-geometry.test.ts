@@ -1,9 +1,12 @@
 import {
   circularSection,
   computeSection,
+  irregularSection,
   maximumDepth,
+  MIN_IRREGULAR_STATIONS,
   rectangularSection,
   resolveSideSlope,
+  stationAreas,
   trapezoidalSection,
 } from '../../domain/geometry';
 import {
@@ -219,5 +222,199 @@ describe('section dispatch', () => {
     expect(maximumDepth({ kind: 'circular', diameter: 0.8 })).toBe(0.8);
     expect(maximumDepth({ kind: 'rectangular', width: 1 })).toBeNull();
     expect(maximumDepth({ kind: 'rectangular', width: 1, totalHeight: 2 })).toBe(2);
+  });
+});
+
+describe('irregular section (field survey, mid-section method)', () => {
+  it('reproduces a rectangle: uniform depth, evenly spaced stations', () => {
+    // A flat, level bed 2 m wide, 0.4 m deep, five equally spaced stations.
+    // The mid-section method should recover exactly what rectangularSection
+    // would give a true rectangle — the two are the same shape read two ways.
+    const result = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0.4 },
+        { distanceM: 0.5, depthM: 0.4 },
+        { distanceM: 1.0, depthM: 0.4 },
+        { distanceM: 1.5, depthM: 0.4 },
+        { distanceM: 2.0, depthM: 0.4 },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.area).toBeCloseTo(2 * 0.4, 9);
+    expect(result.value.topWidth).toBeCloseTo(2, 9);
+    // Perimeter here is only the survey's own polyline — flat, so it equals
+    // the top width, not the U-shape a real rectangular channel would add at
+    // the walls; see the wetted-perimeter simplification in the function's
+    // own comment for why the two are not expected to agree in general.
+    expect(result.value.wettedPerimeter).toBeCloseTo(2, 9);
+  });
+
+  it('reproduces a symmetric triangle: matches a trapezoid with zero bottom width', () => {
+    // A V-shaped bed, 0.6 m deep at the centre of a 2.4 m top width, surveyed
+    // at three stations, against the equivalent trapezoid (b=0, z=2 both
+    // sides) computed the closed-form way.
+    const trapezoid = trapezoidalSection(
+      {
+        kind: 'trapezoidal',
+        bottomWidth: 0,
+        leftSlope: { mode: 'ratio', value: 2 },
+        rightSlope: { mode: 'ratio', value: 2 },
+      },
+      0.6
+    );
+    const survey = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 1.2, depthM: 0.6 },
+        { distanceM: 2.4, depthM: 0 },
+      ],
+    });
+    expect(trapezoid.ok && survey.ok).toBe(true);
+    if (!trapezoid.ok || !survey.ok) return;
+    expect(survey.value.area).toBeCloseTo(trapezoid.value.area, 9);
+    expect(survey.value.topWidth).toBeCloseTo(trapezoid.value.topWidth, 9);
+    expect(survey.value.wettedPerimeter).toBeCloseTo(trapezoid.value.wettedPerimeter, 9);
+  });
+
+  it('handles uneven spacing exactly — an extra station at a ledge changes nothing else', () => {
+    // Same overall shape as the rectangle above, but with one extra station
+    // dropped in close to the left bank (a rock, in the field). Its own panel
+    // is narrower; everyone else's panels adjust to match, and the total area
+    // is unchanged because the depth either side of the extra station is the
+    // same uniform depth.
+    const even = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0.4 },
+        { distanceM: 1.0, depthM: 0.4 },
+        { distanceM: 2.0, depthM: 0.4 },
+      ],
+    });
+    const uneven = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0.4 },
+        { distanceM: 0.1, depthM: 0.4 }, // the extra station, close to the bank
+        { distanceM: 1.0, depthM: 0.4 },
+        { distanceM: 2.0, depthM: 0.4 },
+      ],
+    });
+    expect(even.ok && uneven.ok).toBe(true);
+    if (!even.ok || !uneven.ok) return;
+    expect(uneven.value.area).toBeCloseTo(even.value.area, 9);
+    expect(uneven.value.topWidth).toBeCloseTo(even.value.topWidth, 9);
+  });
+
+  it('refuses fewer than the minimum stations', () => {
+    const result = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 1, depthM: 0.3 },
+      ],
+    });
+    expect(MIN_IRREGULAR_STATIONS).toBeGreaterThan(2);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TOO_FEW_STATIONS');
+  });
+
+  it('refuses stations out of order or repeated', () => {
+    const result = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 1, depthM: 0.3 },
+        { distanceM: 1, depthM: 0.2 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('STATIONS_NOT_ORDERED');
+  });
+
+  it('refuses a negative depth', () => {
+    const result = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 1, depthM: -0.1 },
+        { distanceM: 2, depthM: 0 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('NEGATIVE_STATION_DEPTH');
+  });
+
+  it('refuses a degenerate survey with no area', () => {
+    const result = irregularSection({
+      kind: 'irregular',
+      stations: [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 1, depthM: 0 },
+        { distanceM: 2, depthM: 0 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('DEGENERATE_SECTION');
+  });
+
+  it('dispatches through computeSection, ignoring the external depth argument', () => {
+    const stations = [
+      { distanceM: 0, depthM: 0 },
+      { distanceM: 0.6, depthM: 0.2 },
+      { distanceM: 1.2, depthM: 0 },
+    ];
+    const direct = irregularSection({ kind: 'irregular', stations });
+    // Any depth value dispatches to the same result: the survey is what
+    // decides the section, not this argument.
+    const viaDispatch = computeSection({ kind: 'irregular', stations }, 999);
+    expect(direct.ok && viaDispatch.ok).toBe(true);
+    if (!direct.ok || !viaDispatch.ok) return;
+    expect(viaDispatch.value).toEqual(direct.value);
+  });
+
+  it('has no maximum depth other than its own deepest station', () => {
+    const stations = [
+      { distanceM: 0, depthM: 0 },
+      { distanceM: 0.6, depthM: 0.35 },
+      { distanceM: 1.2, depthM: 0.1 },
+    ];
+    expect(maximumDepth({ kind: 'irregular', stations })).toBeCloseTo(0.35, 9);
+    expect(maximumDepth({ kind: 'irregular', stations: [] })).toBeNull();
+  });
+
+  describe('stationAreas', () => {
+    it('sums to the same total irregularSection reports', () => {
+      const stations = [
+        { distanceM: 0, depthM: 0 },
+        { distanceM: 0.3, depthM: 0.25 },
+        { distanceM: 0.9, depthM: 0.4 },
+        { distanceM: 1.1, depthM: 0.15 },
+        { distanceM: 1.4, depthM: 0 },
+      ];
+      const areas = stationAreas(stations);
+      const total = irregularSection({ kind: 'irregular', stations });
+      expect(total.ok).toBe(true);
+      if (!total.ok) return;
+      expect(areas.reduce((sum, value) => sum + value, 0)).toBeCloseTo(total.value.area, 9);
+      expect(areas).toHaveLength(stations.length);
+    });
+
+    it('gives the edge stations only their inward half-panel', () => {
+      const areas = stationAreas([
+        { distanceM: 0, depthM: 1 },
+        { distanceM: 1, depthM: 1 },
+        { distanceM: 2, depthM: 1 },
+      ]);
+      expect(areas[0]).toBeCloseTo(0.5, 9); // half-panel only, to the right
+      expect(areas[1]).toBeCloseTo(1, 9); // full panel, half on each side
+      expect(areas[2]).toBeCloseTo(0.5, 9); // half-panel only, to the left
+    });
   });
 });

@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { calculate, buildSavedMeasurement, type CalculationOutcome } from '../domain/measurement';
 import { createDisplayId, createId } from '../domain/ids';
-import { maximumDepth } from '../domain/geometry';
+import { irregularSection, maximumDepth, MIN_IRREGULAR_STATIONS, stationAreas } from '../domain/geometry';
 import { activeAlpha } from '../domain/calibration';
 import { toCubicMetresPerHour, toLitresPerSecond } from '../domain/hydraulics';
 import { classifyAccuracy, compareWithSite, type GpsAccuracyClass } from '../domain/gps';
@@ -15,7 +15,7 @@ import {
   isOutsideBand,
   materialLabelKey,
 } from '../domain/roughness';
-import type { Dimensions, LengthUnit, Site, VelocityMethod } from '../domain/types';
+import type { CrossSectionStation, Dimensions, LengthUnit, Site, VelocityMethod } from '../domain/types';
 import {
   degreesToPermille,
   formatNumber,
@@ -525,6 +525,7 @@ function GeometryStep({
           { value: 'circular' as const, label: t('measure.geometry.circular') },
           { value: 'rectangular' as const, label: t('measure.geometry.rectangular') },
           { value: 'trapezoidal' as const, label: t('measure.geometry.trapezoidal') },
+          { value: 'irregular' as const, label: t('measure.geometry.irregular') },
         ]}
       />
       <Choice
@@ -613,8 +614,96 @@ function GeometryStep({
         </>
       ) : null}
 
+      {draft.dimensions.kind === 'irregular' ? (
+        <StationEditor
+          stations={draft.dimensions.stations}
+          unit={unit}
+          t={t}
+          onChange={(stations) => {
+            const deepest = stations.reduce((max, s) => Math.max(max, s.depthM), 0);
+            patchDraft({
+              dimensions: { kind: 'irregular', stations },
+              // No separate depth entry for this shape — see LevelStep and
+              // IrregularDimensions's own comment for why.
+              depth: deepest > 0 ? deepest : null,
+            });
+          }}
+        />
+      ) : null}
+
       <Button label={t('common.next')} onPress={onNext} />
     </>
+  );
+}
+
+function StationEditor({
+  stations,
+  unit,
+  t,
+  onChange,
+}: {
+  stations: readonly CrossSectionStation[];
+  unit: LengthUnit;
+  t: (key: string, fallback?: string) => string;
+  onChange: (next: CrossSectionStation[]) => void;
+}) {
+  const update = (index: number, patch: Partial<CrossSectionStation>) => {
+    onChange(stations.map((station, i) => (i === index ? { ...station, ...patch } : station)));
+  };
+  const remove = (index: number) => {
+    onChange(stations.filter((_, i) => i !== index));
+  };
+  const add = () => {
+    const last = stations[stations.length - 1];
+    const previous = stations[stations.length - 2];
+    const step = last && previous && last.distanceM > previous.distanceM
+      ? last.distanceM - previous.distanceM
+      : 0.3;
+    onChange([...stations, { distanceM: (last?.distanceM ?? 0) + step, depthM: 0 }]);
+  };
+
+  const section = irregularSection({ kind: 'irregular', stations });
+  const areas = stationAreas(stations);
+  const totalArea = areas.reduce((sum, value) => sum + value, 0);
+  const largestShare = totalArea > 0 ? Math.max(...areas) / totalArea : 0;
+
+  return (
+    <View style={styles.stationList}>
+      <Muted>{t('measure.stationsHint')}</Muted>
+      {stations.map((station, index) => (
+        <Card key={index}>
+          <Text style={styles.slopeLabel}>
+            {t('measure.station')} #{index + 1}
+          </Text>
+          <NumberField
+            label={t('measure.stationDistance')}
+            unit={unit}
+            decimals={4}
+            value={fromMetres(station.distanceM, unit)}
+            onChange={(next) => update(index, { distanceM: next === null ? 0 : toMetres(next, unit) })}
+          />
+          <NumberField
+            label={t('measure.stationDepth')}
+            unit={unit}
+            decimals={4}
+            value={fromMetres(station.depthM, unit)}
+            onChange={(next) => update(index, { depthM: next === null ? 0 : toMetres(next, unit) })}
+          />
+          {stations.length > MIN_IRREGULAR_STATIONS ? (
+            <Button label={t('measure.removeStation')} variant="secondary" onPress={() => remove(index)} />
+          ) : null}
+        </Card>
+      ))}
+      <Button label={t('measure.addStation')} variant="secondary" onPress={add} />
+      {section.ok ? (
+        <ValueRow
+          label={t('report.area')}
+          value={`${formatNumber(section.value.area, 4)} m² · ${formatNumber(largestShare * 100, 0)}%`}
+        />
+      ) : (
+        <Note tone="warning">{t(section.error.messageKey)}</Note>
+      )}
+    </View>
   );
 }
 
@@ -690,31 +779,45 @@ function LevelStep({
     <>
       <SectionTitle>{t('measure.step.level')}</SectionTitle>
       <Muted>{t('measure.depthHint')}</Muted>
-      <Choice
-        value={draft.levelMethod}
-        onChange={(mode) => patchDraft({ levelMethod: mode })}
-        options={[
-          { value: 'manual' as const, label: t('measure.levelMethod.manual') },
-          ...(draft.dimensions.kind === 'circular'
-            ? [{ value: 'camera-assisted' as const, label: t('measure.levelMethod.camera') }]
-            : []),
-        ]}
-      />
-      <NumberField
-        label={t('measure.depth')}
-        unit={unit}
-        value={draft.depth !== null ? fromMetres(draft.depth, unit) : null}
-        decimals={4}
-        invalid={draft.depth !== null && maximum !== null && draft.depth >= maximum}
-        hint={
-          maximum !== null
-            ? `0 < h < ${formatNumber(fromMetres(maximum, unit), 3)} ${unit}`
-            : undefined
-        }
-        onChange={(next) => {
-          patchDraft({ depth: next === null ? null : toMetres(next, unit) });
-        }}
-      />
+      {draft.dimensions.kind === 'irregular' ? (
+        // Depth already came in station by station, on the geometry step —
+        // asking for it again here would be the same number twice, and the
+        // wrong one to trust if they ever disagreed.
+        <ValueRow
+          label={t('measure.depth')}
+          value={draft.depth !== null ? formatNumber(fromMetres(draft.depth, unit), 4) : '—'}
+          unit={unit}
+          detail={t('measure.depthFromStations')}
+        />
+      ) : (
+        <>
+          <Choice
+            value={draft.levelMethod}
+            onChange={(mode) => patchDraft({ levelMethod: mode })}
+            options={[
+              { value: 'manual' as const, label: t('measure.levelMethod.manual') },
+              ...(draft.dimensions.kind === 'circular'
+                ? [{ value: 'camera-assisted' as const, label: t('measure.levelMethod.camera') }]
+                : []),
+            ]}
+          />
+          <NumberField
+            label={t('measure.depth')}
+            unit={unit}
+            value={draft.depth !== null ? fromMetres(draft.depth, unit) : null}
+            decimals={4}
+            invalid={draft.depth !== null && maximum !== null && draft.depth >= maximum}
+            hint={
+              maximum !== null
+                ? `0 < h < ${formatNumber(fromMetres(maximum, unit), 3)} ${unit}`
+                : undefined
+            }
+            onChange={(next) => {
+              patchDraft({ depth: next === null ? null : toMetres(next, unit) });
+            }}
+          />
+        </>
+      )}
       {draft.levelMethod === 'camera-assisted' ? (
         <>
           <Note tone="warning">{t('level.camera.affineModelLimitation')}</Note>
@@ -888,6 +991,15 @@ function defaultDimensionsFor(kind: Dimensions['kind']): Dimensions {
         leftSlope: { mode: 'ratio', value: 1 },
         rightSlope: { mode: 'ratio', value: 1 },
       };
+    case 'irregular':
+      return {
+        kind: 'irregular',
+        stations: [
+          { distanceM: 0, depthM: 0 },
+          { distanceM: 0.6, depthM: 0.2 },
+          { distanceM: 1.2, depthM: 0 },
+        ],
+      };
   }
 }
 
@@ -908,6 +1020,12 @@ function describeDimensions(dimensions: Dimensions): { label: string; value: str
         { label: 'zL', value: describeSlopeShort(dimensions.leftSlope) },
         { label: 'zR', value: describeSlopeShort(dimensions.rightSlope) },
       ];
+    case 'irregular':
+      return dimensions.stations.map((station, index) => ({
+        label: `#${index + 1}`,
+        value: `${formatNumber(station.distanceM, 3)} / ${formatNumber(station.depthM, 3)}`,
+        unit: 'm',
+      }));
   }
 }
 
@@ -925,4 +1043,5 @@ const styles = StyleSheet.create({
   stepLabelDone: { color: colors.textMuted },
   siteName: { ...typography.body, color: colors.text, fontWeight: '700' },
   slopeLabel: { ...typography.small, color: colors.textMuted, letterSpacing: 0.6 },
+  stationList: { gap: spacing.sm },
 });

@@ -109,6 +109,35 @@ export function CrossSection({
           </Label>
         </>
       ) : null}
+
+      {kind === 'irregular' ? (
+        <>
+          {/* An uneven bed, read off a handful of surveyed points rather than
+              a formula — the jagged bottom edge is the whole distinction from
+              the other three shapes. */}
+          <Path
+            d="M 14 52 L 30 58 L 42 76 L 58 82 L 72 62 L 86 50 V 12 H 14 Z"
+            fill={WATER}
+          />
+          <Path
+            d="M 12 12 V 52 L 30 58 L 42 76 L 58 82 L 72 62 L 88 50 V 12"
+            stroke={stroke}
+            strokeWidth={4}
+            fill="none"
+          />
+          <Line x1={14} y1={52} x2={86} y2={50} stroke={colors.accent} strokeWidth={2.5} />
+          {[
+            [14, 52],
+            [30, 58],
+            [42, 76],
+            [58, 82],
+            [72, 62],
+            [86, 50],
+          ].map(([x, y]) => (
+            <Circle key={`${x}-${y}`} cx={x} cy={y} r={2.4} fill={colors.accent} />
+          ))}
+        </>
+      ) : null}
     </Svg>
   );
 }

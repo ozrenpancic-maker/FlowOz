@@ -4,7 +4,7 @@ import type { CameraFingerprint, SensorSnapshot } from './sensor-snapshot';
 
 export type { LengthUnit };
 
-export type GeometryKind = 'circular' | 'rectangular' | 'trapezoidal';
+export type GeometryKind = 'circular' | 'rectangular' | 'trapezoidal' | 'irregular';
 
 /** Side-slope of a trapezoidal channel, expressed in one of three ways. */
 export type SideSlopeInput =
@@ -34,7 +34,32 @@ export interface TrapezoidalDimensions {
   rightSlope: SideSlopeInput;
 }
 
-export type Dimensions = CircularDimensions | RectangularDimensions | TrapezoidalDimensions;
+export interface CrossSectionStation {
+  /** Distance from the left bank, across the channel [m]. Stations are
+   * stored left bank to right bank, by strictly increasing distance. */
+  distanceM: number;
+  /** Water depth measured at this station, at the moment of capture [m]. */
+  depthM: number;
+}
+
+/**
+ * A field survey of the wetted section: depth measured at a series of
+ * stations across the channel, rather than fitted to a named shape. There is
+ * no separate depth control to combine this with later — each station
+ * already carries its own, measured at the same visit as the video. A return
+ * visit re-surveys it rather than reusing the numbers, since the water's
+ * shape moves with the stage.
+ */
+export interface IrregularDimensions {
+  kind: 'irregular';
+  stations: readonly CrossSectionStation[];
+}
+
+export type Dimensions =
+  | CircularDimensions
+  | RectangularDimensions
+  | TrapezoidalDimensions
+  | IrregularDimensions;
 
 /** Cross-section properties for a given depth. All values in SI units. */
 export interface SectionProperties {
