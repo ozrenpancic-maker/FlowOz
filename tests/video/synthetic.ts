@@ -96,6 +96,20 @@ export interface SyntheticOptions {
    * bed at zero displacement and reports no flow.
    */
   visibleBed?: { movingAmplitude: number };
+  /**
+   * Fraction of the moving surface pattern replaced by a fresh, unrelated one
+   * in the second frame of each pair: a surface that partly renews itself
+   * between the two frames rather than only translating.
+   *
+   * This is what fast, broken water does. The pattern still travels — the
+   * displacement is exactly `shiftX`/`shiftY` — but the correlation at the
+   * true offset falls well below what a purely translating texture gives,
+   * because only part of the window matches. Field clips refused with median
+   * correlations of 0.37 to 0.48 against a 0.55 floor while the displacement
+   * they should have found was squarely inside the search range, which is
+   * this case and not a lack of texture.
+   */
+  surfaceRenewal?: number;
   seed?: number;
 }
 
@@ -152,6 +166,24 @@ export function makeClip(options: SyntheticOptions = {}): DecodedClip {
         }
 
         first[i] = texture(x, y) + jitter();
+
+        if (options.surfaceRenewal !== undefined) {
+          const insideRenewing =
+            x >= moving.x0 && x <= moving.x1 && y >= moving.y0 && y <= moving.y1;
+          if (insideRenewing) {
+            const renewal = options.surfaceRenewal;
+            // The travelled pattern, blended with an unrelated one that was
+            // not there before: the part that matches still sits at the true
+            // displacement, the rest is new.
+            second[i] =
+              texture(x - shiftX, y - shiftY) * (1 - renewal) +
+              alternate(x, y) * renewal +
+              jitter();
+          } else {
+            second[i] = texture(x, y) + jitter();
+          }
+          continue;
+        }
 
         if (options.shakyBackground) {
           // A smoothly varying but large displacement field: each region is
