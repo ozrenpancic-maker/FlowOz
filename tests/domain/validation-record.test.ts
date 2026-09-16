@@ -27,6 +27,8 @@ function fakeVector(snr: number, accepted = true) {
 function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
   return {
     surfaceVelocity: 1.2,
+    resolvedFlowDirection: 'FORWARD' as const,
+    flowDirectionDisagreedWithRoi: false,
     velocitySource: 'instantaneous',
     velocitySpreadMs: 0.05,
     calibrationStatus: 'VALID',

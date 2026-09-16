@@ -1,6 +1,6 @@
 import { median, medianAbsoluteDeviation } from '../domain/linalg';
 import { err, ok, type Result } from '../domain/result';
-import type { NormalizedPoint, WaterRoi } from '../domain/types';
+import type { FlowDirection, NormalizedPoint, WaterRoi } from '../domain/types';
 import { ALGORITHM_VERSION } from '../domain/types';
 import { buildCalibration, metricDisplacement, type Homography } from './homography';
 import {
@@ -1015,37 +1015,90 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
         : 0;
   const noiseFloor = Number.isFinite(reportedSpread) ? Math.max(0, reportedSpread) : 0;
 
-  if (!Number.isFinite(surfaceVelocity) || surfaceVelocity <= 0 || surfaceVelocity <= noiseFloor) {
+  // Speed has no sign. The streamwise component does, and that sign is the
+  // whole reason the component is used instead of the raw displacement's
+  // magnitude: water crossing the section sideways, camera drift and pure
+  // noise all have a magnitude, and only a *coherent* signed median says the
+  // water is actually running along the channel. Taking the absolute value
+  // outright would hand every one of those a positive velocity.
+  //
+  // But nothing says the operator has to be the one who gets the direction
+  // right. A median that stands clear of its own scatter has already
+  // determined which way the water runs, whichever way the ROI happened to be
+  // drawn — so the sign is resolved from the measurement and the speed is
+  // reported either way. The gate below is unchanged in substance: a reading
+  // inside its own scatter has determined nothing and is still refused.
+  //
+  // Field case this comes from: fourteen vectors agreeing on -0.712 m/s with
+  // a spread of 0.136, on a channel independently timed at about 0.8 m/s. The
+  // water was tracked to within a few percent and the run was thrown away for
+  // a toggle.
+  const measuredReversed = Number.isFinite(surfaceVelocity) && surfaceVelocity < 0;
+  const resolvedSign = measuredReversed ? -1 : 1;
+  const speed = Math.abs(surfaceVelocity);
+  if (measuredReversed) {
+    // Flip the streamwise axis everywhere, so the per-vector record, the
+    // lateral profile and the reported number all describe the same frame.
+    // The cross-stream axis flips with it, keeping the pair right-handed.
+    for (const vector of [...vectors, ...ensemble]) {
+      if (vector.velocityMs !== undefined) vector.velocityMs = -vector.velocityMs;
+      if (vector.lateralVelocityMs !== undefined) {
+        vector.lateralVelocityMs = -vector.lateralVelocityMs;
+      }
+    }
+  }
+  const resolvedFlowDirection: FlowDirection = measuredReversed
+    ? input.flowDirection === 'REVERSED'
+      ? 'FORWARD'
+      : 'REVERSED'
+    : (input.flowDirection ?? 'FORWARD');
+
+  // The sign used to do filtering work nobody had accounted for: pure noise
+  // lands either side of zero, so roughly half of it was thrown out for being
+  // negative. Resolving the direction from the measurement removes that, and
+  // something has to carry the load instead.
+  //
+  // Not the spread across the ROI — that is the channel's own velocity
+  // profile, real and reported as such, and judging a reading against it
+  // punishes the well-behaved sheared flow it should trust. Independent frame
+  // pairs are looking at the same water, so whether they agree says nothing
+  // about the profile and everything about whether there is a flow there at
+  // all. See SSIV_THRESHOLDS.minPairAgreementRatio for the measured margin.
+  const velocitiesByPair = new Map<number, number[]>();
+  for (const vector of accepted) {
+    if (vector.velocityMs === undefined || !Number.isFinite(vector.velocityMs)) continue;
+    const list = velocitiesByPair.get(vector.pairIndex);
+    if (list) list.push(vector.velocityMs);
+    else velocitiesByPair.set(vector.pairIndex, [vector.velocityMs]);
+  }
+  const pairVelocities = [...velocitiesByPair.values()].map((values) => median(values));
+  const pairCentre = pairVelocities.length > 0 ? median(pairVelocities) : NaN;
+  const pairSpread =
+    pairVelocities.length > 1 ? medianAbsoluteDeviation(pairVelocities, pairCentre) : NaN;
+  const clearsScatter =
+    pairVelocities.length > 1 && Number.isFinite(pairSpread)
+      ? Math.abs(pairCentre) > SSIV_THRESHOLDS.minPairAgreementRatio * pairSpread
+      : // One pair cannot disagree with itself. Nothing is left but the old
+        // test against the reading's own spread, which is weaker but is all
+        // the evidence a single pair affords.
+        speed > noiseFloor;
+  if (!Number.isFinite(speed) || !clearsScatter) {
     // Distinct from the vector-count check above: enough vectors passed every
-    // quality filter here, but they average out to zero, to upstream motion,
-    // or to a number smaller than their own disagreement — a different real
-    // cause (no net downstream flow, or the ROI's flow direction not matching
-    // the actual flow) than "too few tracked points", so the detail says
-    // exactly that instead of repeating "median velocity".
-    // A velocity that is coherently negative is not an absence of flow: it is
-    // flow, measured, running the other way. Saying "no net downstream motion"
-    // there buries the one fact that matters — that the water was tracked
-    // perfectly well and only the ROI's flow direction disagrees. Field case:
-    // fourteen vectors agreeing on -0.71 m/s with a spread of 0.14, on a
-    // channel independently timed at about 0.8 m/s.
-    const measuredBackwards =
-      Number.isFinite(surfaceVelocity) && surfaceVelocity < 0 && Math.abs(surfaceVelocity) > noiseFloor;
+    // quality filter here, but what they agree on does not stand clear of how
+    // much they disagree. Which way the water runs is no longer part of this
+    // test — that is resolved from the measurement — so what is left is the
+    // real question: is there a coherent flow here at all, or a set of
+    // matches that merely have a median.
     return err(
       ssivFailure(
         'INSUFFICIENT_VALID_VECTORS',
-        measuredBackwards
-          ? `${accepted.length}/${vectors.length} vectors agree on ` +
-            `${Math.abs(surfaceVelocity).toFixed(3)} m/s running AGAINST the flow direction set on ` +
-            `the ROI, with a spread of only ${noiseFloor.toFixed(3)} m/s — the water was tracked, ` +
-            `the direction setting is the wrong way round. Switch it to ` +
-            `${input.flowDirection === 'REVERSED' ? 'FORWARD' : 'REVERSED'} and run again; ` +
-            setupDiagnostics()
-          : `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
-          `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the median streamwise ` +
-          `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s ` +
-          `against a spread of ${noiseFloor.toFixed(6)} m/s — ` +
-          `no net downstream motion was measured; ${correlationDiagnostics(vectors)}; ` +
-          setupDiagnostics(),
+        `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
+          `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the ${pairVelocities.length} ` +
+          `frame pair(s) do not agree on what they saw: ` +
+          `${Number.isFinite(pairCentre) ? Math.abs(pairCentre).toFixed(4) : 'non-finite'} m/s ` +
+          `between them, differing by ${Number.isFinite(pairSpread) ? pairSpread.toFixed(4) : '—'} m/s. ` +
+          `Pairs looking at the same water agree far more closely than that, so this is a median ` +
+          `of matches rather than a flow; ${correlationDiagnostics(vectors)}; ${setupDiagnostics()}`,
         {
           totalVectors: vectors.length,
           acceptedVectors: accepted.length,
@@ -1114,10 +1167,14 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   };
 
   return ok({
-    surfaceVelocity,
+    surfaceVelocity: speed,
+    resolvedFlowDirection,
+    flowDirectionDisagreedWithRoi: measuredReversed,
     velocitySource,
-    ...(instantaneousVelocity !== undefined ? { instantaneousVelocity } : {}),
-    ...(ensembleVelocity !== undefined ? { ensembleVelocity } : {}),
+    ...(instantaneousVelocity !== undefined
+      ? { instantaneousVelocity: resolvedSign * instantaneousVelocity }
+      : {}),
+    ...(ensembleVelocity !== undefined ? { ensembleVelocity: resolvedSign * ensembleVelocity } : {}),
     ...(lateralVelocity !== undefined ? { lateralVelocity } : {}),
     ...(speedMagnitude !== undefined ? { speedMagnitude } : {}),
     velocitySpreadMs:

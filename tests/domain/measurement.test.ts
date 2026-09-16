@@ -21,6 +21,8 @@ import { SSIV_THRESHOLDS } from '../../video/types';
 function fakeAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
   return {
     surfaceVelocity: 1.2,
+    resolvedFlowDirection: 'FORWARD' as const,
+    flowDirectionDisagreedWithRoi: false,
     velocitySource: 'ensemble',
     ensembleVelocity: 1.2,
     instantaneousVelocity: 1.19,

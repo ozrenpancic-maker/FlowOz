@@ -56,6 +56,41 @@ export const SSIV_THRESHOLDS = Object.freeze({
   maxForwardBackwardPx: 1.5,
   /** Agreement of a vector with its neighbours, 0–1. */
   minSpatialCoherence: 0.25,
+  /**
+   * How far the reported velocity must stand clear of how much the frame
+   * pairs disagree with each other, as a multiple of their median absolute
+   * deviation.
+   *
+   * Between the PAIRS, deliberately, and not across the ROI. The spread
+   * across the ROI is the channel's own velocity profile — slower at the
+   * banks, faster mid-stream — which is real and is reported as such. Judging
+   * a reading against it punishes exactly the well-behaved sheared flow it
+   * should trust: a synthetic channel running 1.5 px at the banks and 4 in
+   * the middle produced 160 of 160 vectors at correlation 1.00 and would have
+   * been thrown out for a ratio of 1.5.
+   *
+   * Independent frame pairs, on the other hand, are looking at the same
+   * water. Whether they agree says nothing about the profile and everything
+   * about whether there is a flow there to agree on. Measured over synthetic
+   * clips run through the whole pipeline against a known true velocity:
+   *
+   *   uniform flow                    ratio 271, velocity exact
+   *   sheared profile                 ratio 468, velocity exact
+   *   half the surface renewed        ratio 43,  velocity within 2%
+   *   seven tenths renewed            ratio 24,  velocity within 7%
+   *   eighty-five hundredths renewed  ratio 4.0, velocity 207% TOO HIGH
+   *   surface replaced outright       ratio 1.8, velocity invented entirely
+   *
+   * Real flow sits at 24 and above, the two that lie at 4.0 and below. 6 is
+   * inside that gap with half again the margin over the worse of the two, and
+   * four times the headroom under the poorest reading still worth keeping.
+   *
+   * It closes a hole that predates the change: the 85%-renewed clip reported
+   * four and a half metres per second against a true one and a half, from
+   * five surviving vectors that happened to agree with each other, at every
+   * correlation floor including the old one.
+   */
+  minPairAgreementRatio: 6,
   /** Vectors that must survive every filter before a velocity is reported. */
   minAcceptedVectors: 4,
   /** Ensemble grid nodes that must survive before the ensemble velocity is used. */
@@ -403,8 +438,23 @@ export interface SsivQualitySummary {
 }
 
 export interface SsivAnalysis {
-  /** Reported metric surface velocity [m/s]. */
+  /** Reported metric surface velocity [m/s]. Never negative: see
+   * `resolvedFlowDirection` for which way along the ROI it runs. */
   surfaceVelocity: number;
+  /**
+   * Which way along the ROI's own axis the water was found to be running,
+   * taken from the measurement rather than from the operator's setting.
+   *
+   * The operator's setting is which way they expected it to run. When the
+   * accepted vectors coherently disagree, they are the evidence and the
+   * setting is not, so the measurement stands and this records the direction
+   * it actually found. A reading that does not stand clear of its own scatter
+   * determines nothing and is still refused — the sign is resolved, never
+   * assumed away.
+   */
+  resolvedFlowDirection: FlowDirection;
+  /** True when that direction is the opposite of the one set on the ROI. */
+  flowDirectionDisagreedWithRoi: boolean;
   /**
    * Where the reported velocity came from: the ensemble estimate when enough
    * of its nodes survived, otherwise the median of the per-pair vectors.

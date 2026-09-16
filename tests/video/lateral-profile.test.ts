@@ -8,6 +8,8 @@ import type { EnsembleVector, SsivAnalysis, SsivVector } from '../../video/types
 function baseAnalysis(overrides: Partial<SsivAnalysis> = {}): SsivAnalysis {
   return {
     surfaceVelocity: 1,
+    resolvedFlowDirection: 'FORWARD' as const,
+    flowDirectionDisagreedWithRoi: false,
     velocitySource: 'instantaneous',
     velocitySpreadMs: 0.02,
     calibrationStatus: 'VALID',

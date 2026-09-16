@@ -140,26 +140,62 @@ describe('flow direction', () => {
     expect(result.value.surfaceVelocity).toBeLessThan(magnitude);
   });
 
-  it('rejects a reversed-relative-to-ROI flow by default, and recovers it once flowDirection is REVERSED', () => {
+  it('measures a flow running against the ROI and says which way it found it', () => {
     // shiftY < 0 means the water moves against the ROI's own 1-2 -> 4-3
     // convention — a real situation when the operator drew the ROI with the
-    // near/far edges swapped relative to the true flow.
+    // near/far edges swapped relative to the true flow. The operator's setting
+    // is which way they expected it to run; the vectors are the evidence, and
+    // when the two disagree the vectors win. A field clip was thrown away for
+    // this: fourteen vectors agreeing on -0.71 m/s with a spread of 0.14, on
+    // water independently timed at about 0.8 m/s.
     const reversedFlow = makeClip({ shiftX: 0, shiftY: -3 });
-
-    const withoutOverride = analyse({ clip: reversedFlow, roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
-    expect(withoutOverride.ok).toBe(false);
-
     const streamwise = (3 * (TEST_DIMENSIONS.lengthM / 81)) / 0.1;
-    const corrected = analyse({
+
+    const asDrawn = analyse({ clip: reversedFlow, roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
+    expect(asDrawn.ok).toBe(true);
+    if (!asDrawn.ok) return;
+    expect(asDrawn.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
+    expect(asDrawn.value.resolvedFlowDirection).toBe('REVERSED');
+    expect(asDrawn.value.flowDirectionDisagreedWithRoi).toBe(true);
+
+    // Told the right direction up front, the same clip gives the same speed
+    // and nothing is reported as disagreeing.
+    const asTold = analyse({
       clip: reversedFlow,
       roi: TEST_ROI,
       knownDimensions: TEST_DIMENSIONS,
       flowDirection: 'REVERSED',
     });
-    expect(corrected.ok).toBe(true);
-    if (!corrected.ok) return;
-    expect(corrected.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
-    expect(corrected.value.surfaceVelocity).toBeGreaterThan(0);
+    expect(asTold.ok).toBe(true);
+    if (!asTold.ok) return;
+    expect(asTold.value.surfaceVelocity).toBeCloseTo(streamwise, 1);
+    expect(asTold.value.resolvedFlowDirection).toBe('REVERSED');
+    expect(asTold.value.flowDirectionDisagreedWithRoi).toBe(false);
+  });
+
+  it('never reports a negative speed, whichever way the ROI was drawn', () => {
+    for (const shiftY of [3, -3]) {
+      const result = analyse({
+        clip: makeClip({ shiftX: 0, shiftY }),
+        roi: TEST_ROI,
+        knownDimensions: TEST_DIMENSIONS,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.value.surfaceVelocity).toBeGreaterThan(0);
+    }
+  });
+
+  it('refuses a median that does not stand clear of its own scatter', () => {
+    // Five vectors that happen to agree with each other are not a flow. This
+    // clip reported 4.6 m/s against a true 1.5 at every correlation floor
+    // before the margin was required.
+    const result = analyse({
+      clip: makeClip({ shiftY: 4, frameDeltaS: 0.1, surfaceRenewal: 0.85 }),
+      roi: TEST_ROI,
+      knownDimensions: TEST_DIMENSIONS,
+    });
+    expect(result.ok).toBe(false);
   });
 });
 
