@@ -317,6 +317,30 @@ describe('camera motion compensation', () => {
     expect(motion.correlation).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minStabilisationCorrelation);
   });
 
+  it('reports one diagnostic per offered anchor, marking which ones fed the motion', () => {
+    const clip = makeClip();
+    const motion = estimateCameraMotion(clip.pairs[0]!, TEST_ROI);
+    expect(motion.anchors).toHaveLength(motion.anchorsAvailable);
+    const usedCount = motion.anchors.filter((anchor) => anchor.used).length;
+    expect(usedCount).toBe(motion.anchorsUsed);
+    // A stable pair actually used some of what it was offered.
+    expect(motion.stable).toBe(true);
+    expect(usedCount).toBeGreaterThan(0);
+    // Positions are the same ones backgroundAnchors offers for this ROI/frame.
+    const offered = backgroundAnchors(TEST_ROI, clip.pairs[0]!.width, clip.pairs[0]!.height);
+    expect(motion.anchors.map((a) => [a.x, a.y])).toEqual(offered.map((a) => [a.x, a.y]));
+  });
+
+  it('trusts none of its anchors when the pair itself is reported unstable', () => {
+    // Shaky background: every anchor may correlate on its own local patch,
+    // but no single rigid motion fits the frame, so the pair is unstable and
+    // none of its anchors should be marked as having fed anything.
+    const clip = makeClip({ shakyBackground: true });
+    const motion = estimateCameraMotion(clip.pairs[0]!, TEST_ROI);
+    expect(motion.stable).toBe(false);
+    expect(motion.anchors.every((anchor) => !anchor.used)).toBe(true);
+  });
+
   it('reports a non-rigidly warped frame as unstable', () => {
     // Anchors that each track well but disagree about the shift are not a
     // global camera motion, and must not be passed off as one.

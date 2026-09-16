@@ -214,6 +214,11 @@ export const hr: Record<keyof typeof en, string> = {
     'Tirkizne strelice pokazuju prihvaćeno otkriveno gibanje na pregledu iznad ' +
     '(skrolajte gore), crvene točke pokazuju odbačene točke mreže; duljina ' +
     'strelice je pretjerana radi vidljivosti, nije u stvarnom mjerilu.',
+  'video.anchorOverlayHint':
+    'Tirkizne točkice pokazuju sidra stabilizacije kamere koja su prihvaćena ' +
+    'kao nepomična pozadina (npr. obala), crvene točkice pokazuju sidra koja ' +
+    'su ponuđena ali odbačena; prikazan je jedan reprezentativni par kadrova, ' +
+    'ne svaki.',
   'video.useResult': 'UPOTRIJEBI OVAJ REZULTAT',
   'video.experimentalBadge': 'EKSPERIMENTALNO · NIJE VALIDIRANI LSPIV',
   'video.noVideo': 'Video još nije odabran.',

@@ -4,6 +4,7 @@ import { extractPatch, findPeak, prepareGrid, type Grid } from './ncc';
 import { roiPolygon } from './roi';
 import {
   SSIV_THRESHOLDS,
+  type AnchorDiagnostic,
   type FramePair,
   type FramePairStabilisation,
   type SimilarityTransform,
@@ -259,8 +260,24 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
     candidateCorrelations.length > 0 ? median(candidateCorrelations) : 0;
   const centreX = pair.width / 2;
   const centreY = pair.height / 2;
+
+  // Every anchor offered, tagged with whether it ended up in `used` — the set
+  // that actually fed the reported motion. An anchor that merely tracked
+  // above the floor but was outvoted by the consensus, or that tracked fine
+  // in a pair reported unstable overall, is not "used": the point is what the
+  // report trusted, not what individually correlated.
+  const anchorDiagnostics = (used: readonly AnchorTrack[]): AnchorDiagnostic[] => {
+    const usedKeys = new Set(used.map((track) => `${track.x},${track.y}`));
+    return anchors.map((anchor) => ({
+      x: anchor.x,
+      y: anchor.y,
+      used: usedKeys.has(`${anchor.x},${anchor.y}`),
+    }));
+  };
+
   const unstable = (anchorsUsed: number, residualPx: number): FramePairStabilisation => ({
     pairIndex: pair.index,
+    anchors: anchorDiagnostics([]),
     shiftXPx: 0,
     shiftYPx: 0,
     model: 'translation',
@@ -304,6 +321,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
       const centre = applySimilarity(fit, centreX, centreY);
       return {
         pairIndex: pair.index,
+        anchors: anchorDiagnostics(used),
         shiftXPx: centre.x - centreX,
         shiftYPx: centre.y - centreY,
         model: 'similarity',
@@ -341,6 +359,7 @@ export function estimateCameraMotion(pair: FramePair, roi: WaterRoi): FramePairS
 
   return {
     pairIndex: pair.index,
+    anchors: anchorDiagnostics(tracks),
     shiftXPx,
     shiftYPx,
     model: 'translation',

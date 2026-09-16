@@ -274,8 +274,29 @@ export interface EnsembleVector {
   rejectionReason?: VectorRejectionReason;
 }
 
+/**
+ * Where one background anchor sat and whether it fed the reported camera
+ * motion — the whole story behind "N of M anchors used", drawn on the
+ * preview so the operator can see whether those points actually landed on
+ * real, stationary ground rather than trusting the count alone.
+ */
+export interface AnchorDiagnostic {
+  /** Anchor centre, in working-resolution pixels. */
+  x: number;
+  y: number;
+  /** True only for anchors that fed the pair's reported motion — tracked
+   * above the correlation floor, inside the search range, and (when a
+   * similarity was fit) not the minority the consensus voted out. False for
+   * every anchor of a pair reported unstable, whatever it individually
+   * tracked as: an unstable pair trusts none of its anchors. */
+  used: boolean;
+}
+
 export interface FramePairStabilisation {
   pairIndex: number;
+  /** Every anchor position offered to this pair, and whether it ended up
+   * feeding the reported motion. */
+  anchors: readonly AnchorDiagnostic[];
   /**
    * Camera displacement at the frame centre, measured on the stationary part
    * of the frame [px]. With a similarity model the displacement elsewhere in

@@ -215,6 +215,10 @@ export const en = {
     'Teal arrows show accepted detected motion on the preview above (scrolled ' +
     'up), red dots show rejected grid points; arrow length is exaggerated for ' +
     'visibility, not to real scale.',
+  'video.anchorOverlayHint':
+    'Teal dots show camera-stabilisation anchors accepted as stationary ' +
+    'background (e.g. the bank), red dots show anchors that were offered but ' +
+    'rejected; one representative frame pair is shown, not every one.',
   'video.useResult': 'USE THIS RESULT',
   'video.experimentalBadge': 'EXPERIMENTAL · NOT A VALIDATED LSPIV',
   'video.noVideo': 'No video selected yet.',

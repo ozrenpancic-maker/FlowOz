@@ -26,6 +26,7 @@ import type { FlowDirection, SiteCameraReference } from '../domain/types';
 import { MotionSampler } from '../sensors/motion-sampler';
 import { captureDeviceInfo } from '../sensors/device-info';
 import { RoiEditor } from '../ui/RoiEditor';
+import { AnchorOverlay } from '../ui/AnchorOverlay';
 import { VectorOverlay } from '../ui/VectorOverlay';
 import { SsivProcessor, type SsivProgress, type SsivRequest } from '../ui/SsivProcessor';
 import { VideoMetadataProbe, type VideoFrameSize } from '../ui/VideoMetadataProbe';
@@ -654,8 +655,10 @@ export default function VideoVelocityScreen() {
                   contentFit="contain"
                 />
                 {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
+                {analysis ? <AnchorOverlay analysis={analysis} fit="contain" /> : null}
               </RoiEditor>
               {analysis ? <Muted>{t('video.vectorOverlayHint')}</Muted> : null}
+              {analysis ? <Muted>{t('video.anchorOverlayHint')}</Muted> : null}
             </>
           ) : (
             // Every ROI point is stored as a fraction of the source frame's own

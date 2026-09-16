@@ -28,6 +28,7 @@ import {
   SectionTitle,
   ValueRow,
 } from '../../ui/components';
+import { AnchorOverlay } from '../../ui/AnchorOverlay';
 import { VectorOverlay } from '../../ui/VectorOverlay';
 import { colors, gradeTone, radius, spacing, typography } from '../../ui/theme';
 
@@ -326,8 +327,10 @@ export default function MeasurementDetailScreen() {
                 >
                   <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="contain" />
                   {analysis ? <VectorOverlay analysis={analysis} fit="contain" /> : null}
+                  {analysis ? <AnchorOverlay analysis={analysis} fit="contain" /> : null}
                 </View>
                 {analysis ? <Muted>{t('video.vectorOverlayHint')}</Muted> : null}
+                {analysis ? <Muted>{t('video.anchorOverlayHint')}</Muted> : null}
               </>
             )
           ) : null}
