@@ -7,8 +7,47 @@ import type { ImageQualityMetrics } from './image-quality';
  * the same numbers.
  */
 export const SSIV_THRESHOLDS = Object.freeze({
-  /** Normalised cross-correlation floor for an interrogation point. */
-  minCorrelation: 0.55,
+  /**
+   * Normalised cross-correlation floor for an interrogation point.
+   *
+   * Lowered from 0.55 after a controlled experiment, because 0.55 was
+   * refusing data the pipeline could still measure. Field clip after field
+   * clip came back with a median grid correlation between 0.37 and 0.49 and
+   * almost every vector dropped as LOW_CORRELATION, on water whose
+   * displacement was squarely inside the search range at the spacing the
+   * pilot had chosen — so the floor, not the water, was the obstacle.
+   *
+   * What the raw correlation measures is how much of the pattern survived
+   * from one frame to the next, not whether the peak found is the right one.
+   * A surface that partly renews itself between frames — which is what fast,
+   * broken water does — scores low at the true offset while the peak stays
+   * exactly where it should be. The sweep in tests/video/correlation-floor
+   * makes that concrete: a small window on coarse texture scored 0.56 at an
+   * offset fourteen pixels wrong, while a larger one scored 0.26 and landed
+   * within a third of a pixel.
+   *
+   * The value is measured rather than chosen. Running the whole pipeline over
+   * synthetic clips whose surface renews by a known fraction, with the true
+   * velocity known:
+   *
+   *   floor 0.20 — a clip with NO real motion at all reports 6.4 m/s
+   *   floor 0.25 — that clip is refused; 70% renewal recovers to within 1%
+   *   floor 0.35 — refused; 70% renewal recovers to within 7%
+   *   floor 0.40 — refused; 70% renewal recovers to within 5%
+   *   floor 0.45 — refused; 70% renewal now refused too
+   *   floor 0.55 — refused; 70% renewal refused
+   *
+   * So pure noise starts getting through below 0.25 and recoverable data
+   * starts being thrown away above 0.40. 0.35 is the middle of that band,
+   * a tenth clear of either edge.
+   *
+   * Raising the interrogation window was the other candidate and was rejected
+   * on the same evidence: 48 px cost 11% of the velocity on clean data and
+   * 64 px cost 31%, because a window that large spans enough of the ROI to
+   * average across the shear profile — and at 48 px with this floor a clip
+   * with no motion in it reported 3.7 m/s.
+   */
+  minCorrelation: 0.35,
   /** Ratio between the best and the second-best correlation peak. */
   minPeakRatio: 1.015,
   /** Subpixel uncertainty ceiling [px]. */

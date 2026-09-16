@@ -676,7 +676,7 @@ describe('raw vector metadata contract', () => {
     const result = analyse({ clip: makeClip(), roi: TEST_ROI, knownDimensions: TEST_DIMENSIONS });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.thresholds.minCorrelation).toBe(0.55);
+    expect(result.value.thresholds.minCorrelation).toBe(0.35);
     expect(result.value.thresholds.minPeakRatio).toBe(1.015);
     expect(result.value.thresholds.maxUncertaintyPx).toBe(20);
     expect(result.value.thresholds.maxForwardBackwardPx).toBe(1.5);
