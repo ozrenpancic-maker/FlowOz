@@ -168,15 +168,42 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
     );
   }
 
-  // Positive evidence that the water was moving too little to see: a rung
-  // that correlated well enough to measure a displacement, and measured one
-  // under a pixel. Only that justifies going further out on the ladder.
-  const measuredTooSlow = scored.some(
+  // Going further out on the ladder is only right for water genuinely moving
+  // too little to see, and sub-pixel travel on its own does not say that.
+  // Correlation locking onto a streambed showing through the water also sits
+  // at zero displacement — at every spacing, because the bed does not move —
+  // and reading that as "barely moving" is what sent field clips out to
+  // 0.480 s and 0.960 s on water crossing seventy pixels between frames.
+  //
+  // What separates them is whether the travel GROWS with the spacing. Real
+  // motion covers twice the distance in twice the time; a lock on something
+  // stationary covers the same nothing however long you wait. So the rungs
+  // that saw anything are compared end to end, and the ladder only reaches
+  // further out when doubling the gap between frames actually bought more
+  // travel.
+  const informative = scored.filter(
     (probe) =>
       probe.usableVectors >= SSIV_THRESHOLDS.minAcceptedVectors &&
-      Number.isFinite(probe.medianDisplacementPx) &&
-      probe.medianDisplacementPx < 1
+      Number.isFinite(probe.medianDisplacementPx)
   );
+  const shortest = informative.reduce<SpacingProbe | null>(
+    (best, probe) => (best === null || probe.frameDeltaS < best.frameDeltaS ? probe : best),
+    null
+  );
+  const longest = informative.reduce<SpacingProbe | null>(
+    (best, probe) => (best === null || probe.frameDeltaS > best.frameDeltaS ? probe : best),
+    null
+  );
+  const grewWithSpacing =
+    shortest === null ||
+    longest === null ||
+    longest === shortest ||
+    // Half of proportional growth or better: the travel rose with the time
+    // rather than staying put, which is the whole distinction being drawn.
+    longest.medianDisplacementPx >=
+      0.5 * shortest.medianDisplacementPx * (longest.frameDeltaS / shortest.frameDeltaS);
+  const measuredTooSlow =
+    longest !== null && longest.medianDisplacementPx < 1 && grewWithSpacing;
   return scored.reduce((best, probe) =>
     measuredTooSlow
       ? probe.frameDeltaS > best.frameDeltaS

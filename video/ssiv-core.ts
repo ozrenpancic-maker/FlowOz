@@ -1022,10 +1022,25 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
     // cause (no net downstream flow, or the ROI's flow direction not matching
     // the actual flow) than "too few tracked points", so the detail says
     // exactly that instead of repeating "median velocity".
+    // A velocity that is coherently negative is not an absence of flow: it is
+    // flow, measured, running the other way. Saying "no net downstream motion"
+    // there buries the one fact that matters — that the water was tracked
+    // perfectly well and only the ROI's flow direction disagrees. Field case:
+    // fourteen vectors agreeing on -0.71 m/s with a spread of 0.14, on a
+    // channel independently timed at about 0.8 m/s.
+    const measuredBackwards =
+      Number.isFinite(surfaceVelocity) && surfaceVelocity < 0 && Math.abs(surfaceVelocity) > noiseFloor;
     return err(
       ssivFailure(
         'INSUFFICIENT_VALID_VECTORS',
-        `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
+        measuredBackwards
+          ? `${accepted.length}/${vectors.length} vectors agree on ` +
+            `${Math.abs(surfaceVelocity).toFixed(3)} m/s running AGAINST the flow direction set on ` +
+            `the ROI, with a spread of only ${noiseFloor.toFixed(3)} m/s — the water was tracked, ` +
+            `the direction setting is the wrong way round. Switch it to ` +
+            `${input.flowDirection === 'REVERSED' ? 'FORWARD' : 'REVERSED'} and run again; ` +
+            setupDiagnostics()
+          : `${accepted.length}/${vectors.length} vectors passed every filter (at or above the ` +
           `${SSIV_THRESHOLDS.minAcceptedVectors}-vector minimum), but the median streamwise ` +
           `velocity was ${Number.isFinite(surfaceVelocity) ? surfaceVelocity.toFixed(6) : 'non-finite'} m/s ` +
           `against a spread of ${noiseFloor.toFixed(6)} m/s — ` +
