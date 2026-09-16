@@ -830,6 +830,30 @@ export default function VideoVelocityScreen() {
             value={`${analysis.quality.distinctAcceptedColumns}/${analysis.thresholds.gridColumns}`}
           />
           <ValueRow
+            label={t('video.windowCoverage')}
+            value={
+              Number.isFinite(analysis.quality.metresPerPixel)
+                ? `${formatNumber(
+                    analysis.quality.metresPerPixel * analysis.thresholds.interrogationWindowPx,
+                    2
+                  )} m`
+                : '—'
+            }
+            detail={t('video.windowCoverageHint')}
+          />
+          <ValueRow
+            label={t('video.velocityRange')}
+            value={
+              Number.isFinite(analysis.quality.velocityResolutionMs)
+                ? `${formatNumber(analysis.quality.velocityResolutionMs, 3)} – ${formatNumber(
+                    analysis.quality.velocityResolutionMs * analysis.thresholds.searchRadiusPx,
+                    2
+                  )} m/s`
+                : '—'
+            }
+            detail={t('video.velocityRangeHint')}
+          />
+          <ValueRow
             label={t('video.velocityResolution')}
             value={
               Number.isFinite(analysis.quality.velocityResolutionMs)

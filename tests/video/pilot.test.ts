@@ -149,6 +149,33 @@ describe('choosing the spacing to measure at', () => {
     expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
   });
 
+  it('takes the shortest rung when no rung correlated well enough to measure', () => {
+    // What water too fast for the ladder actually looks like: not a large
+    // displacement, but nothing at all, because nothing correlates. Reading
+    // that silence as "nobody was too fast" and reaching for the longest
+    // spacing is how two field clips came to run at 0.240 s and 0.480 s on a
+    // 0.005 m/px scale, where water near 0.8 m/s crosses 40 and 80 pixels
+    // against a 24 pixel search range.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: Number.NaN, usableVectors: 0 }),
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: Number.NaN, usableVectors: 0 }),
+      probe({ frameDeltaS: 0.24, medianDisplacementPx: Number.NaN, usableVectors: 0 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: Number.NaN, usableVectors: 0 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.06, 6);
+  });
+
+  it('goes long only on a rung that measured the water barely moving', () => {
+    // One rung correlated and found the travel genuinely under a pixel; the
+    // rest found nothing. That is the one shape of evidence that earns a
+    // longer spacing.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 0.3 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: Number.NaN, usableVectors: 0 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
+  });
+
   it('has nothing to say about an empty ladder', () => {
     expect(chooseSpacing([])).toBeNull();
   });

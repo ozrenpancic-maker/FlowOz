@@ -326,6 +326,12 @@ export interface SsivQualitySummary {
    */
   velocityResolutionMs: number;
   /**
+   * Metres of real channel one working pixel covers, at the ROI's centre.
+   * The scale everything else is derived from, and on its own the number that
+   * says how much water a correlation window is looking at.
+   */
+  metresPerPixel: number;
+  /**
    * Distinct interrogation-grid columns (out of SSIV_THRESHOLDS.gridColumns)
    * represented among the vectors that fed the reported velocity. Confirmed
    * on real field data: when this is 1, every accepted vector came from the

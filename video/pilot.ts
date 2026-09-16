@@ -119,11 +119,23 @@ export function probeSpacing(pair: FramePair, roi: WaterRoi): SpacingProbe {
  * a difference because the ladder itself is geometric: 3 px and 12 px are
  * equally far from 6 px in the only sense that matters here.
  *
- * If nothing qualifies the ladder still has something to say. Displacements
- * everywhere below a pixel mean the longest spacing probed is the best chance
- * left; displacements everywhere past the search range mean the shortest is.
- * Returning nothing at all would only hand the decision back to the fixed
- * spacing that caused the problem.
+ * If nothing qualifies the ladder still has something to say, but only in one
+ * direction. Reaching for a LONGER spacing has to be earned: it is the right
+ * move only when some rung actually measured the water moving, and measured it
+ * moving less than a pixel. Absent that, a shorter spacing is the safe choice,
+ * because spacing and travel go up together — whatever went wrong at the long
+ * end (the water outran the search, or the surface stopped looking like itself
+ * between the two frames) only gets worse further out.
+ *
+ * Getting this backwards is not hypothetical. A rung the water outruns does
+ * not report a large displacement; it reports almost nothing, because nothing
+ * correlates. The first version read that silence as "no rung was too fast"
+ * and picked the longest spacing on the ladder — so two field clips ran at
+ * 0.240 s and 0.480 s against a 0.005 m/px scale, where water near 0.8 m/s
+ * travels 40 and 80 pixels between frames against a 24 pixel search range.
+ * Both refused with correlation 0.47 and "rejected mostly LOW_CORRELATION".
+ * At the ladder's shortest rung the same water moves about ten pixels, which
+ * is squarely measurable.
  */
 export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | null {
   const scored = probes.filter(
@@ -156,18 +168,21 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
     );
   }
 
-  const everyRungTooFast = scored.every(
+  // Positive evidence that the water was moving too little to see: a rung
+  // that correlated well enough to measure a displacement, and measured one
+  // under a pixel. Only that justifies going further out on the ladder.
+  const measuredTooSlow = scored.some(
     (probe) =>
-      probe.atSearchEdge > probe.usableVectors ||
-      (Number.isFinite(probe.medianDisplacementPx) &&
-        probe.medianDisplacementPx > MAX_USABLE_DISPLACEMENT_PX)
+      probe.usableVectors >= SSIV_THRESHOLDS.minAcceptedVectors &&
+      Number.isFinite(probe.medianDisplacementPx) &&
+      probe.medianDisplacementPx < 1
   );
   return scored.reduce((best, probe) =>
-    everyRungTooFast
-      ? probe.frameDeltaS < best.frameDeltaS
+    measuredTooSlow
+      ? probe.frameDeltaS > best.frameDeltaS
         ? probe
         : best
-      : probe.frameDeltaS > best.frameDeltaS
+      : probe.frameDeltaS < best.frameDeltaS
         ? probe
         : best
   );

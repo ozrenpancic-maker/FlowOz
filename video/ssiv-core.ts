@@ -649,7 +649,24 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
   const setupDiagnostics = () =>
     `frame spacing ${medianFrameDeltaS.toFixed(3)} s, ` +
     `scale ${metresPerPixel.toFixed(4)} m/px, ` +
-    `so one pixel of travel is ${velocityResolutionMs.toFixed(3)} m/s`;
+    `so one pixel of travel is ${velocityResolutionMs.toFixed(3)} m/s ` +
+    // One pixel is the floor and the search range is the ceiling, so the two
+    // together are the band of velocities this setup could report at all.
+    // Water outside it does not come back as a wrong number, it comes back as
+    // nothing correlating — which reads identically to untrackable water and
+    // is fixed by something else entirely.
+    `and the fastest it can follow is ` +
+    `${(velocityResolutionMs * SSIV_THRESHOLDS.searchRadiusPx).toFixed(2)} m/s; ` +
+    // How much real water one correlation window looks at. A window has to
+    // hold a pattern that still looks like itself in the next frame, and on a
+    // rippled surface the small features turn over far faster than the large
+    // ones — so this size, not the velocity, is what decides whether anything
+    // correlates at all. It is reported rather than enforced: the field
+    // evidence so far is one clip that worked at 0.36 m and three that
+    // refused at 0.11 m, which is a pattern worth showing the operator and
+    // far too little to turn into a limit.
+    `each correlation window covers ` +
+    `${(metresPerPixel * SSIV_THRESHOLDS.interrogationWindowPx).toFixed(2)} m of water`;
 
   // ZNCC already removes each window's own mean and scales by its own
   // variance (see correlateAt), which is what a high-pass filter would try to
@@ -1057,6 +1074,7 @@ export function analyse(input: SsivAnalysisInput): Result<SsivAnalysis, SsivFail
 
   const quality: SsivQualitySummary = {
     velocityResolutionMs,
+    metresPerPixel,
     totalVectors: vectors.length,
     acceptedVectors: accepted.length,
     rejectedVectors: vectors.length - accepted.length,
