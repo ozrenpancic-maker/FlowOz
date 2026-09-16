@@ -14,7 +14,7 @@ import { formatNumber, parseNumericInput } from '../domain/units';
 import { persistMedia, type StoredMedia } from '../storage/media-storage';
 import { useMeasurement } from '../state/measurement-context';
 import { useSettings } from '../state/settings-context';
-import { buildCalibration, metricDisplacement, translateRoi } from '../video/homography';
+import { buildCalibration, metricDisplacement, resizeRoiWidth, translateRoi } from '../video/homography';
 import type { SsivFailure } from '../video/failure-taxonomy';
 import { defaultRoi, roiPolygon, toPixels, validateRoi } from '../video/roi';
 import { rectifyRoi } from '../video/rectangle';
@@ -116,6 +116,7 @@ export default function VideoVelocityScreen() {
     draft.knownRoiDimensions ? String(draft.knownRoiDimensions.lengthM) : ''
   );
   const [nudgeStepText, setNudgeStepText] = useState('0.1');
+  const [narrowWidthText, setNarrowWidthText] = useState('');
 
   const [request, setRequest] = useState<SsivRequest | null>(null);
   const [progress, setProgress] = useState<SsivProgress>('idle');
@@ -220,6 +221,29 @@ export default function VideoVelocityScreen() {
       deltaAlongM * nudgeStepM
     );
     if (moved) setRoi(moved);
+  };
+
+  const narrowWidthM = parseNumericInput(narrowWidthText);
+  // Narrows the calibrated width without touching length or redrawing a
+  // single point — see resizeRoiWidth's own comment for why this has to go
+  // through the same homography rather than a freehand redraw. A ROI drawn
+  // edge to edge (the most trustworthy way to enter the width — a laser
+  // reads the real bank-to-bank distance) otherwise leaves nudgeRoi no room
+  // to move within, since it already touches both banks.
+  const narrowRoi = () => {
+    if (!knownDimensions || narrowWidthM === null || narrowWidthM <= 0) return;
+    const narrowed = resizeRoiWidth(
+      roi,
+      knownDimensions,
+      workingFrameWidth,
+      workingFrameHeight,
+      narrowWidthM
+    );
+    if (!narrowed) return;
+    setRoi(narrowed);
+    // The entered width has to change with it — a smaller box under the old,
+    // wider figure would silently corrupt the scale for everything after.
+    setWidthText(formatNumber(narrowWidthM, 4));
   };
 
   // ----------------------------------------------------------- permissions
@@ -697,6 +721,30 @@ export default function VideoVelocityScreen() {
                   </Pressable>
                 </View>
               </View>
+            </>
+          ) : (
+            <Muted>{t('video.nudgeRoi.unavailable')}</Muted>
+          )}
+
+          <SectionTitle>{t('video.narrowRoi.title')}</SectionTitle>
+          <Muted>{t('video.narrowRoi.hint')}</Muted>
+          {calibrationPreview && calibrationPreview.ok && widthM !== null && widthM > 0 ? (
+            <>
+              <Field
+                label={t('video.narrowRoi.newWidth')}
+                unit="m"
+                value={narrowWidthText}
+                onChangeText={setNarrowWidthText}
+                invalid={
+                  narrowWidthText !== '' && (narrowWidthM === null || narrowWidthM <= 0 || narrowWidthM > widthM)
+                }
+              />
+              <Button
+                label={t('video.narrowRoi.apply')}
+                variant="secondary"
+                disabled={narrowWidthM === null || narrowWidthM <= 0 || narrowWidthM > widthM}
+                onPress={narrowRoi}
+              />
             </>
           ) : (
             <Muted>{t('video.nudgeRoi.unavailable')}</Muted>

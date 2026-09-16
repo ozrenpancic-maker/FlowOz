@@ -3,6 +3,7 @@ import {
   applyHomography,
   buildCalibration,
   metricDisplacement,
+  resizeRoiWidth,
   solveHomography,
   translateRoi,
 } from '../../video/homography';
@@ -275,5 +276,95 @@ describe('translateRoi', () => {
     expect(moved).not.toBeNull();
     if (!moved) return;
     expect(validateRoi(moved, dimensions).map((p) => p.code)).toContain('POINT_OUTSIDE_FRAME');
+  });
+});
+
+describe('resizeRoiWidth', () => {
+  it('halves the width, centred, leaving the length untouched', () => {
+    const narrowed = resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, 1);
+    expect(narrowed).not.toBeNull();
+    if (!narrowed) return;
+
+    // 1 m across is 72 px = 0.3 of the 240 px frame width; centred within the
+    // original 0.2–0.8 span leaves 0.15 of margin on each side.
+    expect(narrowed.topLeft.x).toBeCloseTo(0.2 + 0.15, 6);
+    expect(narrowed.topRight.x).toBeCloseTo(0.8 - 0.15, 6);
+    expect(narrowed.bottomLeft.x).toBeCloseTo(0.2 + 0.15, 6);
+    expect(narrowed.bottomRight.x).toBeCloseTo(0.8 - 0.15, 6);
+    // The downstream edges do not move at all — only width narrowed.
+    expect(narrowed.topLeft.y).toBeCloseTo(rectangleRoi.topLeft.y, 6);
+    expect(narrowed.bottomLeft.y).toBeCloseTo(rectangleRoi.bottomLeft.y, 6);
+  });
+
+  it('produces a rectangle whose recalibration reproduces exactly the requested width and the same length', () => {
+    const newWidthM = 0.7;
+    const narrowed = resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, newWidthM);
+    expect(narrowed).not.toBeNull();
+    if (!narrowed) return;
+
+    const narrowDimensions = { widthM: newWidthM, lengthM: dimensions.lengthM };
+    const recalibrated = buildCalibration(narrowed, narrowDimensions, FRAME_W, FRAME_H);
+    expect(recalibrated.ok).toBe(true);
+    if (!recalibrated.ok) return;
+    expect(recalibrated.value.status).toBe('VALID');
+
+    const topLeftPx = { x: narrowed.topLeft.x * FRAME_W, y: narrowed.topLeft.y * FRAME_H };
+    const topRightPx = { x: narrowed.topRight.x * FRAME_W, y: narrowed.topRight.y * FRAME_H };
+    const bottomLeftPx = { x: narrowed.bottomLeft.x * FRAME_W, y: narrowed.bottomLeft.y * FRAME_H };
+    const width = metricDisplacement(
+      recalibrated.value,
+      topLeftPx.x,
+      topLeftPx.y,
+      topRightPx.x - topLeftPx.x,
+      topRightPx.y - topLeftPx.y
+    );
+    const length = metricDisplacement(
+      recalibrated.value,
+      topLeftPx.x,
+      topLeftPx.y,
+      bottomLeftPx.x - topLeftPx.x,
+      bottomLeftPx.y - topLeftPx.y
+    );
+    expect(width?.distanceM).toBeCloseTo(newWidthM, 6);
+    expect(length?.distanceM).toBeCloseTo(dimensions.lengthM, 6);
+  });
+
+  it('leaves the ROI unchanged when asked for the same width it already has', () => {
+    const same = resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, dimensions.widthM);
+    expect(same).not.toBeNull();
+    if (!same) return;
+    for (const key of ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as const) {
+      expect(same[key].x).toBeCloseTo(rectangleRoi[key].x, 6);
+      expect(same[key].y).toBeCloseTo(rectangleRoi[key].y, 6);
+    }
+  });
+
+  it('refuses to widen past what was actually calibrated', () => {
+    expect(resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, dimensions.widthM + 0.5)).toBeNull();
+  });
+
+  it('refuses a non-positive width', () => {
+    expect(resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, 0)).toBeNull();
+    expect(resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, -0.1)).toBeNull();
+  });
+
+  it('returns null without a valid current calibration — nothing to narrow within', () => {
+    expect(resizeRoiWidth(rectangleRoi, { widthM: 0, lengthM: 3 }, FRAME_W, FRAME_H, 1)).toBeNull();
+  });
+
+  it('composes with translateRoi: narrow, then nudge sideways within the room it opened', () => {
+    const newWidthM = 0.8;
+    const narrowed = resizeRoiWidth(rectangleRoi, dimensions, FRAME_W, FRAME_H, newWidthM);
+    expect(narrowed).not.toBeNull();
+    if (!narrowed) return;
+    const narrowDimensions = { widthM: newWidthM, lengthM: dimensions.lengthM };
+
+    // Full width had margin 0 either side; narrowed to 0.8 of 2 m leaves 0.6 m
+    // free on each side, so a 0.4 m sideways nudge should stay on real water,
+    // still inside the ORIGINAL full-width calibration's visible span.
+    const nudged = translateRoi(narrowed, narrowDimensions, FRAME_W, FRAME_H, 0.4, 0);
+    expect(nudged).not.toBeNull();
+    if (!nudged) return;
+    expect(validateRoi(nudged, narrowDimensions)).toHaveLength(0);
   });
 });

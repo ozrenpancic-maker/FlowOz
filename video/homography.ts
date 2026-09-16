@@ -261,6 +261,58 @@ export function translateRoi(
   return { topLeft, topRight, bottomRight, bottomLeft };
 }
 
+/**
+ * Rebuild the ROI so it encloses a NARROWER real-world rectangle, centred
+ * within the current width, the same length, computed through the same
+ * calibration this ROI already carries — not redrawn by hand.
+ *
+ * The full bank-to-bank width, laser-measured against real, visible edges, is
+ * the most trustworthy input the operator can give; a wider quadrilateral
+ * also conditions the perspective maths in {@link rectifyRoi} better, so
+ * deriving the length there first, on the full width, then narrowing
+ * afterwards, is the right order — not the reverse. But a ROI drawn edge to
+ * edge leaves {@link translateRoi} nothing to move within: it already touches
+ * both banks, so a sideways nudge immediately runs off the calibrated water.
+ *
+ * This is the piece that opens that room back up, exactly rather than by
+ * eye: `newWidthM` replaces the calibration's width without touching its
+ * length, so how far downstream is measured is untouched — only the
+ * cross-stream extent narrows, symmetrically about the same centre line.
+ *
+ * Requires a currently valid calibration and 0 < newWidthM <= the current
+ * width — widening past what was actually measured has nothing to extrapolate
+ * from, so the caller gets null rather than a guess.
+ */
+export function resizeRoiWidth(
+  roi: WaterRoi,
+  dimensions: KnownRoiDimensions,
+  frameWidth: number,
+  frameHeight: number,
+  newWidthM: number
+): WaterRoi | null {
+  const { widthM, lengthM } = dimensions;
+  if (!Number.isFinite(newWidthM) || newWidthM <= 0 || newWidthM > widthM) return null;
+
+  const calibration = buildCalibration(roi, dimensions, frameWidth, frameHeight);
+  if (!calibration.ok) return null;
+  const inverse = calibration.value.inverse;
+
+  const project = (worldX: number, worldY: number): NormalizedPoint | null => {
+    const pixel = applyHomography(inverse, worldX, worldY);
+    if (!pixel) return null;
+    return { x: pixel.x / frameWidth, y: pixel.y / frameHeight };
+  };
+
+  const margin = (widthM - newWidthM) / 2;
+  const topLeft = project(margin, 0);
+  const topRight = project(margin + newWidthM, 0);
+  const bottomRight = project(margin + newWidthM, lengthM);
+  const bottomLeft = project(margin, lengthM);
+  if (!topLeft || !topRight || !bottomRight || !bottomLeft) return null;
+
+  return { topLeft, topRight, bottomRight, bottomLeft };
+}
+
 export function metricDisplacement(
   homography: Homography,
   fromX: number,

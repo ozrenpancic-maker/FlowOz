@@ -136,6 +136,10 @@ export const en = {
   'video.roiLength': 'Real ROI length (streamwise)',
   'video.scaleHint':
     'These are the real dimensions of the rectangle you drew on the water, not the width of the whole channel. The ROI need not reach the banks — a smaller ROI out in the water is better, because it leaves textured stationary bank outside it for the camera-stability check and keeps grid points off rock and dry bed. The cross-section area for discharge comes from the channel geometry and depth you enter separately, not from here. The one exception is the lateral-profile cross-check, which assumes the ROI spans the flow: with an ROI covering only midstream that figure overstates the discharge, while the main result stays correct. This is the only supported metric scale; there is no pixel-scale fallback.',
+  'video.narrowRoi.title': 'Narrow ROI (shortens width only, length untouched)',
+  'video.narrowRoi.hint': 'If the ROI was drawn edge to edge across the water (the most accurate way to enter a laser-measured width), "Move ROI" has nowhere to go — it already touches both banks. This narrows the ROI about the same centre line to a new, smaller width, through the same calibration — nothing is redrawn by hand, so the new width is exact. The streamwise length is left unchanged.',
+  'video.narrowRoi.newWidth': 'New ROI width',
+  'video.narrowRoi.apply': 'Narrow ROI',
   'video.flowDirection.title': 'Flow direction',
   'video.flowDirection.forward': 'Edge 1–2 → 4–3',
   'video.flowDirection.reversed': 'Edge 4–3 → 1–2 (reversed)',

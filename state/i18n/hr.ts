@@ -134,6 +134,10 @@ export const hr: Record<keyof typeof en, string> = {
   'video.roiLength': 'Stvarna duljina ROI-a (u smjeru toka)',
   'video.scaleHint':
     'Ovo su stvarne dimenzije pravokutnika koji si nacrtao na vodi — ne širina cijelog kanala. ROI ne mora dosezati do obala; dapače, manji ROI usred vode je bolji, jer ostavlja teksturiranu nepomičnu obalu izvan njega za provjeru stabilnosti kamere i sprječava da točke mreže padnu na kamen ili suho korito. Površina presjeka za protok dolazi iz geometrije kanala i dubine koje upisuješ posebno, ne odavde. Jedina iznimka je unakrsna provjera bočnog profila: ona pretpostavlja da ROI ide preko cijele širine toka, pa ako ROI pokriva samo sredinu, taj kontrolni broj precjenjuje protok — glavni rezultat je i dalje ispravan. Ovo je jedina podržana metrička skala; nema pixel-scale fallbacka.',
+  'video.narrowRoi.title': 'Suzi ROI (skraćuje širinu, ne dira duljinu)',
+  'video.narrowRoi.hint': 'Ako si ROI postavio od ruba do ruba vode (najtočniji način za lasersko mjerenje širine), "Pomakni ROI" nema kamo pomaknuti — već dodiruje obje obale. Ova funkcija suzi ROI oko iste sredine na novu, manju širinu, kroz istu kalibraciju — ne crta se ništa ručno, pa je nova širina točna. Duljina niz tok ostaje nepromijenjena.',
+  'video.narrowRoi.newWidth': 'Nova širina ROI-a',
+  'video.narrowRoi.apply': 'Suzi ROI',
   'video.flowDirection.title': 'Smjer toka',
   'video.flowDirection.forward': 'Rub 1–2 → 4–3',
   'video.flowDirection.reversed': 'Rub 4–3 → 1–2 (obrnuto)',
