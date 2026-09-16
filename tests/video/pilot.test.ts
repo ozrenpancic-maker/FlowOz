@@ -1,7 +1,9 @@
+import { suppressStaticBackground } from '../../video/background';
 import { planPilotPairs, pilotSpacings } from '../../video/frame-plan';
 import {
   chooseSpacing,
   describeSpacingProbes,
+  probeLadder,
   probeSpacing,
   TARGET_DISPLACEMENT_PX,
   type SpacingProbe,
@@ -77,6 +79,52 @@ describe('reading the displacement a spacing produces', () => {
     const slow = probeSpacing(makeClip({ shiftY: 2, frameDeltaS: 0.1 }).pairs[0]!, TEST_ROI);
     const fast = probeSpacing(makeClip({ shiftY: 8, frameDeltaS: 0.4 }).pairs[0]!, TEST_ROI);
     expect(fast.medianDisplacementPx / slow.medianDisplacementPx).toBeCloseTo(4, 0);
+  });
+});
+
+describe('probing the ladder the way the real run measures', () => {
+  // The field failure these hold shut: a stone channel independently timed at
+  // 0.83 m/s, where the pilot read tenths of a pixel at every short rung,
+  // disqualified them for being sub-pixel and walked out to 0.96 s — a
+  // spacing at which that water crosses over a hundred pixels against a 24 px
+  // search, so nothing correlated and the run returned no vectors at all.
+  const bedClip = () => makeClip({ shiftY: 6, visibleBed: { movingAmplitude: 0.3 } });
+
+  it('measures the water, not the streambed showing through it', () => {
+    const probes = probeLadder(bedClip().pairs, TEST_ROI);
+    expect(probes).toHaveLength(6);
+    for (const probe of probes) {
+      expect(probe.medianDisplacementPx).toBeCloseTo(6, 0);
+      expect(probe.usableVectors).toBeGreaterThanOrEqual(SSIV_THRESHOLDS.minAcceptedVectors);
+    }
+  });
+
+  it('leaves the displacement alone on water with no bed under it', () => {
+    const probes = probeLadder(makeClip({ shiftY: 4 }).pairs, TEST_ROI);
+    for (const probe of probes) expect(probe.medianDisplacementPx).toBeCloseTo(4, 0);
+  });
+
+  it('keeps the ladder measurable, so a bed can no longer send it to the long end', () => {
+    const chosen = chooseSpacing(probeLadder(bedClip().pairs, TEST_ROI));
+    expect(chosen).not.toBeNull();
+    // Every rung of this clip carries the same 6 px, so the choice must rest
+    // on a real displacement rather than on the sub-pixel reading a visible
+    // bed used to produce.
+    expect(chosen!.medianDisplacementPx).toBeGreaterThan(1);
+  });
+
+  it('takes the camera motion from the frames that still have scenery in them', () => {
+    // Suppression erases the bank the anchors track. Re-measuring the motion
+    // from the suppressed frames reported a camera moving 5.84 px on a clip
+    // shot from a tripod, which then cancelled the water's own 6.02 px.
+    const pairs = bedClip().pairs;
+    const viaLadder = probeLadder(pairs, TEST_ROI)[0] as SpacingProbe;
+    const reMeasured = probeSpacing(
+      suppressStaticBackground(pairs).pairs[0] as typeof pairs[number],
+      TEST_ROI
+    );
+    expect(viaLadder.medianDisplacementPx).toBeCloseTo(6, 0);
+    expect(reMeasured.medianDisplacementPx).toBeLessThan(1);
   });
 });
 

@@ -15,7 +15,7 @@ import {
 import { buildDecoderHtml } from '../video/decoder-html';
 import { ssivFailure, type SsivFailure } from '../video/failure-taxonomy';
 import { planFramePairs, planPilotPairs } from '../video/frame-plan';
-import { chooseSpacing, describeSpacingProbes, probeSpacing } from '../video/pilot';
+import { chooseSpacing, describeSpacingProbes, probeLadder } from '../video/pilot';
 import { analyse } from '../video/ssiv-core';
 import type { SsivAnalysis } from '../video/types';
 
@@ -150,7 +150,7 @@ export function SsivProcessor({
       // found nothing to go on, leaves the fixed band in charge rather than
       // failing the run — that is exactly where the run would have started
       // before the ladder existed.
-      const probes = clip.ok ? clip.clip.pairs.map((pair) => probeSpacing(pair, request.roi)) : [];
+      const probes = clip.ok ? probeLadder(clip.clip.pairs, request.roi) : [];
       const chosen = clip.ok ? chooseSpacing(probes) : null;
       pilotLogRef.current = clip.ok ? describeSpacingProbes(probes, chosen) : undefined;
       const plan = chosen

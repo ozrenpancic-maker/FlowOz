@@ -55,7 +55,7 @@ function bilinear(a: NormalizedPoint, b: NormalizedPoint, t: number): Normalized
 }
 
 /** Axis-aligned pixel bounding box of the ROI polygon, clamped to the frame. */
-function roiPixelBoundingBox(
+export function roiPixelBoundingBox(
   roi: WaterRoi,
   frameWidth: number,
   frameHeight: number

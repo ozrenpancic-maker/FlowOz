@@ -1,9 +1,10 @@
 import { median } from '../domain/linalg';
 import type { WaterRoi } from '../domain/types';
+import { suppressStaticBackground } from './background';
 import { extractPatch, findPeak, prepareGrid, type Grid } from './ncc';
-import { interrogationGrid } from './ssiv-core';
+import { interrogationGrid, roiPixelBoundingBox } from './ssiv-core';
 import { cameraDisplacementAt, estimateCameraMotion } from './stabilisation';
-import { SSIV_THRESHOLDS, type FramePair } from './types';
+import { SSIV_THRESHOLDS, type FramePair, type FramePairStabilisation } from './types';
 
 /**
  * Choosing the frame spacing from the water instead of assuming it.
@@ -74,10 +75,24 @@ export interface SpacingProbe {
  * removed the same way the real run removes it, so the figure is the water's
  * own travel and not the operator's hands.
  */
-export function probeSpacing(pair: FramePair, roi: WaterRoi): SpacingProbe {
+export function probeSpacing(
+  pair: FramePair,
+  roi: WaterRoi,
+  /**
+   * The camera's own motion for this pair, when it was measured elsewhere.
+   *
+   * It has to be, whenever the frames handed in here have had their static
+   * background subtracted: the anchors live outside the ROI, on exactly the
+   * scenery that subtraction flattens to nothing, so re-measuring the motion
+   * from those frames tracks noise. Measured on a synthetic clip of water
+   * crossing 6 px over a visible bed, the peak was found at 6.02 px and then
+   * a phantom camera motion of 5.84 px was subtracted from it, leaving 0.40.
+   */
+  precomputedMotion?: FramePairStabilisation
+): SpacingProbe {
   const firstRaw: Grid = { data: pair.first, width: pair.width, height: pair.height };
   const second = prepareGrid({ data: pair.second, width: pair.width, height: pair.height });
-  const motion = estimateCameraMotion(pair, roi);
+  const motion = precomputedMotion ?? estimateCameraMotion(pair, roi);
 
   const displacements: number[] = [];
   const correlations: number[] = [];
@@ -108,6 +123,44 @@ export function probeSpacing(pair: FramePair, roi: WaterRoi): SpacingProbe {
     atSearchEdge,
     stabilised: motion.stable,
   };
+}
+
+/**
+ * Probe every rung of the ladder the way the real run measures.
+ *
+ * Two things have to happen in the order the analysis does them, and getting
+ * either wrong sends the ladder to the opposite end from the right answer.
+ *
+ * The streambed is removed first. A stone channel with the bed showing
+ * through holds a stronger, better-defined pattern than the ripples running
+ * over it, and it does not move — so most of the grid locks onto it at zero
+ * displacement and the median reads "the water is barely moving" however fast
+ * it runs. On synthetic water crossing 6 px over a visible bed the raw probe
+ * returned 0.41 px. The real run never had this problem because it has always
+ * interrogated the suppressed frames; only the pilot was reading the bed.
+ *
+ * The camera's motion is measured BEFORE that removal, on the raw frames.
+ * Its anchors sit outside the ROI, on the bank and the stones — the very
+ * scenery the subtraction erases. Measured after it, the same clip reported a
+ * camera moving 5.84 px, which then cancelled the water's own 6.02 px and
+ * left 0.40.
+ *
+ * Both together: 6.02 px found, 5.95 px reported, against a true 6.
+ *
+ * This was the field failure. Clip after clip on a channel independently
+ * timed at 0.83 m/s had the pilot read tenths of a pixel at the shortest
+ * rung, disqualify it for being sub-pixel, and walk out to 0.96 s — where
+ * that water travels over a hundred pixels against a 24 px search and
+ * nothing correlates at all.
+ */
+export function probeLadder(pairs: readonly FramePair[], roi: WaterRoi): SpacingProbe[] {
+  const motions = pairs.map((pair) => estimateCameraMotion(pair, roi));
+  const reference = pairs[0];
+  const suppressed = suppressStaticBackground(
+    pairs,
+    reference ? roiPixelBoundingBox(roi, reference.width, reference.height) : undefined
+  );
+  return suppressed.pairs.map((pair, index) => probeSpacing(pair, roi, motions[index]));
 }
 
 /**
