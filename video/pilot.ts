@@ -111,6 +111,38 @@ export function probeSpacing(pair: FramePair, roi: WaterRoi): SpacingProbe {
 }
 
 /**
+ * One line per rung of the ladder, for a run to say exactly what the pilot
+ * saw and why it chose what it chose — rather than leaving that to be
+ * reverse-engineered from the final run's numbers after the fact.
+ *
+ * This exists because it was needed: a field clip's frame spacing kept coming
+ * back at the ladder's longest rung on water independently known to run
+ * 0.5-0.9 m/s, and nothing recorded what every OTHER rung had measured to
+ * explain why. A synthetic clip built to reproduce it — a visible streambed
+ * under real fast-moving water — did not reproduce the failure; the pilot
+ * chose correctly on that model. Something about the real clip differs from
+ * every model tried so far, and the next field report needs to carry the
+ * actual per-rung numbers rather than requiring another guess.
+ */
+export function describeSpacingProbes(
+  probes: readonly SpacingProbe[],
+  chosen: SpacingProbe | null
+): string {
+  const rows = probes
+    .map((probe) => {
+      const marker = chosen && probe.frameDeltaS === chosen.frameDeltaS ? '*' : ' ';
+      return (
+        `${marker}dt=${probe.frameDeltaS.toFixed(3)}s ` +
+        `d=${Number.isFinite(probe.medianDisplacementPx) ? probe.medianDisplacementPx.toFixed(2) : '—'}px ` +
+        `c=${probe.medianCorrelation.toFixed(2)} n=${probe.usableVectors} edge=${probe.atSearchEdge} ` +
+        `stable=${probe.stabilised ? 'y' : 'n'}`
+      );
+    })
+    .join('; ');
+  return `pilot ladder (* chosen): ${rows}`;
+}
+
+/**
  * The spacing to run the real analysis at.
  *
  * A rung qualifies when enough of its grid correlated, the displacement it

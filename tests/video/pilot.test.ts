@@ -1,5 +1,11 @@
 import { planPilotPairs, pilotSpacings } from '../../video/frame-plan';
-import { chooseSpacing, probeSpacing, TARGET_DISPLACEMENT_PX, type SpacingProbe } from '../../video/pilot';
+import {
+  chooseSpacing,
+  describeSpacingProbes,
+  probeSpacing,
+  TARGET_DISPLACEMENT_PX,
+  type SpacingProbe,
+} from '../../video/pilot';
 import { analyse } from '../../video/ssiv-core';
 import { SSIV_THRESHOLDS } from '../../video/types';
 import { makeClip, TEST_DIMENSIONS, TEST_ROI } from './synthetic';
@@ -221,5 +227,24 @@ describe('the same water at two frame spacings', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.quality.velocityResolutionMs).toBeCloseTo(METRES_PER_PIXEL / 0.8, 2);
+  });
+});
+
+describe('describing the pilot ladder for a failure report', () => {
+  it('marks the chosen rung and lists every probe', () => {
+    const probes = [
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 0.4, medianCorrelation: 0.9 }),
+      probe({ frameDeltaS: 0.96, medianDisplacementPx: 19.1, medianCorrelation: 0.31, atSearchEdge: 5 }),
+    ];
+    const text = describeSpacingProbes(probes, probes[1] as SpacingProbe);
+    expect(text).toContain('dt=0.060s');
+    expect(text).toContain('*dt=0.960s');
+    expect(text).toContain('d=19.10px');
+    expect(text).toContain('edge=5');
+  });
+
+  it('says so when nothing was chosen', () => {
+    const text = describeSpacingProbes([], null);
+    expect(text).toBe('pilot ladder (* chosen): ');
   });
 });

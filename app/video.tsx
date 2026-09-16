@@ -121,6 +121,7 @@ export default function VideoVelocityScreen() {
   const [progress, setProgress] = useState<SsivProgress>('idle');
   const [analysis, setLocalAnalysis] = useState<SsivAnalysis | null>(null);
   const [failure, setFailure] = useState<SsivFailure | null>(null);
+  const [pilotLog, setPilotLog] = useState<string | null>(null);
   const [showVectors, setShowVectors] = useState(false);
 
   const videoUri = stored?.uri ?? draft.videoUri ?? null;
@@ -361,9 +362,14 @@ export default function VideoVelocityScreen() {
   };
 
   const handleResult = useCallback(
-    (result: { ok: true; analysis: SsivAnalysis } | { ok: false; failure: SsivFailure }) => {
+    (
+      result:
+        | { ok: true; analysis: SsivAnalysis; pilotLog?: string }
+        | { ok: false; failure: SsivFailure; pilotLog?: string }
+    ) => {
       setRequest(null);
       setProgress('idle');
+      setPilotLog(result.pilotLog ?? null);
       if (result.ok) {
         setLocalAnalysis(result.analysis);
         setFailure(null);
@@ -801,7 +807,7 @@ export default function VideoVelocityScreen() {
         <ErrorBlock
           title={t(failure.messageKey)}
           action={t(failure.actionKey)}
-          detail={failure.detail}
+          detail={pilotLog ? `${failure.detail}\n\n${pilotLog}` : failure.detail}
           detailLabel={t('common.technicalDetail')}
         >
           {failure.evidence ? (

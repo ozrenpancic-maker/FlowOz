@@ -15,7 +15,7 @@ import {
 import { buildDecoderHtml } from '../video/decoder-html';
 import { ssivFailure, type SsivFailure } from '../video/failure-taxonomy';
 import { planFramePairs, planPilotPairs } from '../video/frame-plan';
-import { chooseSpacing, probeSpacing } from '../video/pilot';
+import { chooseSpacing, describeSpacingProbes, probeSpacing } from '../video/pilot';
 import { analyse } from '../video/ssiv-core';
 import type { SsivAnalysis } from '../video/types';
 
@@ -60,12 +60,17 @@ export function SsivProcessor({
   onProgress,
 }: {
   request: SsivRequest | null;
-  onResult: (result: { ok: true; analysis: SsivAnalysis } | { ok: false; failure: SsivFailure }) => void;
+  onResult: (
+    result:
+      | { ok: true; analysis: SsivAnalysis; pilotLog?: string }
+      | { ok: false; failure: SsivFailure; pilotLog?: string }
+  ) => void;
   onProgress?: (progress: SsivProgress) => void;
 }) {
   const webViewRef = useRef<WebView>(null);
   const collectorRef = useRef<DecoderCollectorState>(createCollector());
   const stageRef = useRef<'pilot' | 'final'>('pilot');
+  const pilotLogRef = useRef<string | undefined>(undefined);
   const settledRef = useRef(false);
   const [html] = useState(() => buildDecoderHtml());
 
@@ -98,7 +103,7 @@ export function SsivProcessor({
   const settle = (result: Parameters<typeof onResult>[0]) => {
     if (settledRef.current) return;
     settledRef.current = true;
-    onResult(result);
+    onResult(pilotLogRef.current ? { ...result, pilotLog: pilotLogRef.current } : result);
   };
 
   const handleMessage = (event: WebViewMessageEvent) => {
@@ -145,9 +150,9 @@ export function SsivProcessor({
       // found nothing to go on, leaves the fixed band in charge rather than
       // failing the run — that is exactly where the run would have started
       // before the ladder existed.
-      const chosen = clip.ok
-        ? chooseSpacing(clip.clip.pairs.map((pair) => probeSpacing(pair, request.roi)))
-        : null;
+      const probes = clip.ok ? clip.clip.pairs.map((pair) => probeSpacing(pair, request.roi)) : [];
+      const chosen = clip.ok ? chooseSpacing(probes) : null;
+      pilotLogRef.current = clip.ok ? describeSpacingProbes(probes, chosen) : undefined;
       const plan = chosen
         ? planFramePairs(request.durationS, {
             minDeltaS: chosen.frameDeltaS,
