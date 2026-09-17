@@ -32,8 +32,6 @@ export const hr: Record<keyof typeof en, string> = {
 
   'home.newMeasurement': 'NOVO MJERENJE',
   'home.newMeasurementHint': 'Site → Geometrija → Razina → Brzina → Pregled → Rezultat',
-  'home.quickMeasure': 'BRZO MJERENJE',
-  'home.quickMeasureHint': 'Jednokratno mjerenje bez spremljenog mjesta',
   'home.sites': 'MJERNA MJESTA',
   'home.saved': 'SPREMLJENA MJERENJA',
   'home.calibration': 'KALIBRACIJA',

@@ -40,9 +40,9 @@ export default function HomeScreen() {
     }, [ready, storageError, repository])
   );
 
-  const startMeasurement = (quick: boolean) => {
+  const startMeasurement = () => {
     reset(settings.defaultAlpha);
-    router.push(quick ? '/measure?quick=1' : '/measure');
+    router.push('/measure');
   };
 
   return (
@@ -62,13 +62,7 @@ export default function HomeScreen() {
         />
       ) : null}
 
-      <Button label={t('home.newMeasurement')} hint={t('home.newMeasurementHint')} onPress={() => startMeasurement(false)} />
-      <Button
-        label={t('home.quickMeasure')}
-        hint={t('home.quickMeasureHint')}
-        variant="secondary"
-        onPress={() => startMeasurement(true)}
-      />
+      <Button label={t('home.newMeasurement')} hint={t('home.newMeasurementHint')} onPress={startMeasurement} />
 
       <View style={styles.grid}>
         <View style={styles.gridItem}>

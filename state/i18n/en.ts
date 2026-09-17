@@ -34,8 +34,6 @@ export const en = {
 
   'home.newMeasurement': 'NEW MEASUREMENT',
   'home.newMeasurementHint': 'Site → Geometry → Level → Velocity → Review → Result',
-  'home.quickMeasure': 'QUICK MEASURE',
-  'home.quickMeasureHint': 'One-off measurement without a saved site',
   'home.sites': 'SITES',
   'home.saved': 'SAVED MEASUREMENTS',
   'home.calibration': 'CALIBRATION',
