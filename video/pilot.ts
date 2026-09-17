@@ -287,8 +287,29 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
     // rather than staying put, which is the whole distinction being drawn.
     longest.medianDisplacementPx >=
       0.5 * shortest.medianDisplacementPx * (longest.frameDeltaS / shortest.frameDeltaS);
+  // Reaching further out also has to be somewhere worth reaching. When the
+  // rungs past the informative one have already fallen under the correlation
+  // floor, the ladder has shown that the surface stops looking like itself at
+  // those spacings: "found nothing" there is the pattern dying, not the water
+  // standing still, and the real run finds nothing too.
+  //
+  // A field ladder made the difference concrete. Its only rung with enough
+  // usable vectors sat at 0.060 s and read 0.66 px — sub-pixel, so by
+  // displacement alone the water looked too slow to see. Every longer rung
+  // came back at 0.19-0.25 correlation against a floor of 0.35, and with no
+  // second informative rung to compare against, the growth test had nothing
+  // to weigh and waved the reach through. The run went to 0.960 s on a
+  // channel independently timed at 0.83 m/s, where the water crosses fifty
+  // pixels between frames, and returned no vectors at all.
+  const reach = scored.reduce((best, probe) =>
+    probe.frameDeltaS > best.frameDeltaS ? probe : best
+  );
+  const reachStillCorrelates = reach.medianCorrelation >= SSIV_THRESHOLDS.minCorrelation;
   const measuredTooSlow =
-    longest !== null && longest.medianDisplacementPx < 1 && grewWithSpacing;
+    longest !== null &&
+    longest.medianDisplacementPx < 1 &&
+    grewWithSpacing &&
+    reachStillCorrelates;
   return scored.reduce((best, probe) =>
     measuredTooSlow
       ? probe.frameDeltaS > best.frameDeltaS

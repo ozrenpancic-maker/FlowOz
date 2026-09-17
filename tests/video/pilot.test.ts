@@ -230,6 +230,24 @@ describe('choosing the spacing to measure at', () => {
     expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
   });
 
+  it('stays short when the rungs it would reach for have lost the pattern', () => {
+    // A field ladder, verbatim, from a channel independently timed at
+    // 0.83 m/s. Only the shortest rung had enough usable vectors to say
+    // anything, and it read sub-pixel — so by displacement alone the water
+    // looked too slow to see. Every longer rung had already fallen under the
+    // correlation floor, which is the surface ceasing to look like itself,
+    // not water standing still. The run went to 0.960 s, where that water
+    // crosses fifty pixels against a 24 px search, and returned nothing.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 0.66, medianCorrelation: 0.4, usableVectors: 13 }),
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 0.07, medianCorrelation: 0.25, usableVectors: 2, atSearchEdge: 2 }),
+      probe({ frameDeltaS: 0.24, medianDisplacementPx: Number.NaN, medianCorrelation: 0.19, usableVectors: 0 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: 0.24, medianCorrelation: 0.19, usableVectors: 1, atSearchEdge: 3 }),
+      probe({ frameDeltaS: 0.96, medianDisplacementPx: 0.13, medianCorrelation: 0.23, usableVectors: 2, atSearchEdge: 2 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.06, 6);
+  });
+
   it('has nothing to say about an empty ladder', () => {
     expect(chooseSpacing([])).toBeNull();
   });
