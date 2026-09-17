@@ -38,6 +38,7 @@ export const hr: Record<keyof typeof en, string> = {
   'home.settings': 'POSTAVKE',
   'home.validation': 'VALIDACIJA',
   'home.liveFlow': 'LIVE FLOW',
+  'home.tools': 'ALATI',
   'home.recent': 'ZADNJA MJERENJA',
   'home.noRecent': 'Na ovom uređaju još nema spremljenih mjerenja.',
 
@@ -157,6 +158,7 @@ export const hr: Record<keyof typeof en, string> = {
   'video.velocitySource.ensemble': 'ensemble procjena',
   'video.velocitySource.instantaneous': 'procjena po paru kadrova',
   'video.instantaneousVelocity': 'Brzina po paru kadrova (unakrsna provjera)',
+  'video.diagnostics': 'DIJAGNOSTIKA',
   'video.acceptedVectors': 'Prihvaćeni vektori',
   'video.rejectedVectors': 'Odbačeni vektori',
   'video.acceptanceRatio': 'Prihvat',

@@ -64,6 +64,9 @@ export default function HomeScreen() {
 
       <Button label={t('home.newMeasurement')} hint={t('home.newMeasurementHint')} onPress={startMeasurement} />
 
+      {/* The two screens a field day actually goes through, kept beside the
+          measurement button. The rest are occasional and sit below the recent
+          list, so the top of the screen carries only what gets used. */}
       <View style={styles.grid}>
         <View style={styles.gridItem}>
           <Button label={t('home.sites')} variant="secondary" onPress={() => router.push('/sites')} />
@@ -71,20 +74,7 @@ export default function HomeScreen() {
         <View style={styles.gridItem}>
           <Button label={t('home.saved')} variant="secondary" onPress={() => router.push('/saved')} />
         </View>
-        <View style={styles.gridItem}>
-          <Button label={t('home.calibration')} variant="secondary" onPress={() => router.push('/calibration')} />
-        </View>
-        <View style={styles.gridItem}>
-          <Button label={t('home.validation')} variant="secondary" onPress={() => router.push('/validation')} />
-        </View>
-        <View style={styles.gridItem}>
-          <Button label={t('home.settings')} variant="secondary" onPress={() => router.push('/settings')} />
-        </View>
-        <View style={styles.gridItem}>
-          <Button label={t('home.liveFlow')} variant="secondary" onPress={() => router.push('/live-flow')} />
-        </View>
       </View>
-      <Badge label={t('live.badge')} tone="experimental" />
 
       <SectionTitle>{t('home.recent')}</SectionTitle>
       {listError ? (
@@ -118,6 +108,23 @@ export default function HomeScreen() {
           />
         </Card>
       ))}
+
+      <SectionTitle>{t('home.tools')}</SectionTitle>
+      <View style={styles.grid}>
+        <View style={styles.gridItem}>
+          <Button label={t('home.calibration')} variant="secondary" onPress={() => router.push('/calibration')} />
+        </View>
+        <View style={styles.gridItem}>
+          <Button label={t('home.validation')} variant="secondary" onPress={() => router.push('/validation')} />
+        </View>
+        <View style={styles.gridItem}>
+          <Button label={t('home.settings')} variant="secondary" onPress={() => router.push('/settings')} />
+        </View>
+        <View style={styles.gridItem}>
+          <Button label={t('home.liveFlow')} variant="secondary" onPress={() => router.push('/live-flow')} />
+        </View>
+      </View>
+      <Badge label={t('live.badge')} tone="experimental" />
     </Screen>
   );
 }

@@ -122,6 +122,8 @@ export function ValueRow({
   tone,
   withheld = false,
   detail,
+  explanation,
+  explanationLabel = '?',
 }: {
   label: string;
   value: string;
@@ -130,6 +132,10 @@ export function ValueRow({
   tone?: QualityTone;
   withheld?: boolean;
   detail?: string;
+  /** Long-form background, folded away behind a tap. `detail` stays for the
+   * short meta that belongs beside the number itself. */
+  explanation?: string;
+  explanationLabel?: string;
 }) {
   return (
     <View style={styles.valueRow}>
@@ -151,6 +157,48 @@ export function ValueRow({
           {[provenance, detail].filter(Boolean).join(' · ')}
         </Text>
       ) : null}
+      {explanation ? (
+        <Disclosure label={explanationLabel} align="right">
+          <Text style={styles.valueExplanation}>{explanation}</Text>
+        </Disclosure>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Long-form text kept out of the way until it is wanted.
+ *
+ * Every explanation in this app is worth reading once and worth skipping
+ * every time after that. Left permanently open they push the numbers a
+ * screen apart, which on a result read fifty times is the difference
+ * between glancing and scrolling.
+ */
+export function Disclosure({
+  label,
+  children,
+  align = 'left',
+}: {
+  label: string;
+  children: ReactNode;
+  align?: 'left' | 'right';
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.disclosure}>
+      <Pressable
+        onPress={() => setOpen((previous) => !previous)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        hitSlop={spacing.sm}
+        style={align === 'right' ? styles.disclosureToggleRight : undefined}
+      >
+        <Text style={styles.disclosureLabel}>
+          {open ? '▾ ' : '▸ '}
+          {label}
+        </Text>
+      </Pressable>
+      {open ? children : null}
     </View>
   );
 }
@@ -190,10 +238,13 @@ export function ErrorBlock({
       <Text style={[styles.errorTitle, { color }]}>{title}</Text>
       {action ? <Text style={styles.errorAction}>{action}</Text> : null}
       {detail ? (
-        <Text style={styles.errorDetail}>
-          {detailLabel ? `${detailLabel}: ` : ''}
-          {detail}
-        </Text>
+        // The failure text carries every number the refusal rested on, which
+        // is the point of it and also why it runs to a paragraph. Folded away,
+        // it stays one tap from the operator without burying the instruction
+        // above it.
+        <Disclosure label={detailLabel ?? ''}>
+          <Text style={styles.errorDetail}>{detail}</Text>
+        </Disclosure>
       ) : null}
       {children}
     </View>
@@ -524,6 +575,10 @@ const styles = StyleSheet.create({
   valueText: { ...typography.mono, color: colors.text, fontWeight: '700', textAlign: 'right' },
   valueUnit: { color: colors.textMuted, fontWeight: '400' },
   valueMeta: { ...typography.small, color: colors.textFaint, textAlign: 'right' },
+  valueExplanation: { ...typography.small, color: colors.textFaint, textAlign: 'right' },
+  disclosure: { gap: spacing.xs },
+  disclosureToggleRight: { alignSelf: 'flex-end' },
+  disclosureLabel: { ...typography.small, color: colors.accentDim },
   badge: {
     borderWidth: 1,
     borderRadius: radius.sm,

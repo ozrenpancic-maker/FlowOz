@@ -40,6 +40,7 @@ export const en = {
   'home.settings': 'SETTINGS',
   'home.validation': 'VALIDATION',
   'home.liveFlow': 'LIVE FLOW',
+  'home.tools': 'TOOLS',
   'home.recent': 'RECENT MEASUREMENTS',
   'home.noRecent': 'No measurements recorded on this device yet.',
 
@@ -158,6 +159,7 @@ export const en = {
   'video.velocitySource.ensemble': 'ensemble estimate',
   'video.velocitySource.instantaneous': 'per-pair estimate',
   'video.instantaneousVelocity': 'Per-pair surface velocity (cross-check)',
+  'video.diagnostics': 'DIAGNOSTICS',
   'video.acceptedVectors': 'Accepted vectors',
   'video.rejectedVectors': 'Rejected vectors',
   'video.acceptanceRatio': 'Acceptance',

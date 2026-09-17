@@ -472,7 +472,7 @@ export default function MeasurementDetailScreen() {
                         ? `${formatNumber(analysis.quality.velocityResolutionMs, 4)} m/s`
                         : '—'
                     }
-                    detail={t('saved.technical.velocityResolutionHint')}
+                    explanation={t('saved.technical.velocityResolutionHint')}
                   />
                   <ValueRow
                     label={t('saved.technical.staticBackground')}

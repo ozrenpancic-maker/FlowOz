@@ -814,7 +814,7 @@ export default function VideoVelocityScreen() {
           <ValueRow
             label={t('video.roiScale')}
             value={previewMetresPerPixel ? `${formatNumber(previewMetresPerPixel, 4)} m/px` : '—'}
-            detail={t('video.roiScaleHint')}
+            explanation={t('video.roiScaleHint')}
           />
           <ValueRow
             label={t('video.calibrationStatus')}
@@ -901,6 +901,33 @@ export default function VideoVelocityScreen() {
               unit="m/s"
             />
           ) : null}
+          {/* The answer first: what the measurement is for, before the
+              evidence it rests on. The diagnostics below matter when a run
+              disappoints, not when it works. */}
+          <ValueRow
+            label={t('video.alphaUsed')}
+            value={formatNumber(draft.alpha, 3)}
+            provenance={t(`provenance.${draft.alphaProvenance.toLowerCase()}`)}
+          />
+          {previewFlow ? (
+            <>
+              <ValueRow label={t('video.meanVelocity')} value={formatNumber(previewFlow.meanVelocity, 4)} unit="m/s" />
+              <ValueRow label={t('video.flow')} value={formatNumber(previewFlow.flow, 5)} unit="m³/s" />
+            </>
+          ) : null}
+          {lateralProfilePreview ? (
+            <ValueRow
+              label={t('video.lateralProfileFlow')}
+              value={formatNumber(lateralProfilePreview.flow, 5)}
+              unit="m³/s"
+              detail={`${lateralProfilePreview.columnsUsed}/${lateralProfilePreview.columnsTotal} ${t('video.lateralProfileColumns')}`}
+            />
+          ) : (
+            <Note tone="neutral">{t('video.lateralProfileUnavailable')}</Note>
+          )}
+          <ValueRow label={t('quality.uncertainty')} value={t('quality.uncertaintyWithheld')} withheld />
+
+          <SectionTitle>{t('video.diagnostics')}</SectionTitle>
           <ValueRow
             label={t('video.acceptedVectors')}
             value={`${analysis.quality.acceptedVectors}/${analysis.quality.totalVectors}`}
@@ -940,7 +967,7 @@ export default function VideoVelocityScreen() {
                   )} m`
                 : '—'
             }
-            detail={t('video.windowCoverageHint')}
+            explanation={t('video.windowCoverageHint')}
           />
           <ValueRow
             label={t('video.velocityRange')}
@@ -952,7 +979,7 @@ export default function VideoVelocityScreen() {
                   )} m/s`
                 : '—'
             }
-            detail={t('video.velocityRangeHint')}
+            explanation={t('video.velocityRangeHint')}
           />
           <ValueRow
             label={t('video.velocityResolution')}
@@ -961,7 +988,7 @@ export default function VideoVelocityScreen() {
                 ? `${formatNumber(analysis.quality.velocityResolutionMs, 4)} m/s`
                 : '—'
             }
-            detail={t('video.velocityResolutionHint')}
+            explanation={t('video.velocityResolutionHint')}
           />
           <ValueRow
             label={t('video.staticBackground')}
@@ -1048,29 +1075,6 @@ export default function VideoVelocityScreen() {
               )}
             </>
           ) : null}
-
-          <ValueRow
-            label={t('video.alphaUsed')}
-            value={formatNumber(draft.alpha, 3)}
-            provenance={t(`provenance.${draft.alphaProvenance.toLowerCase()}`)}
-          />
-          {previewFlow ? (
-            <>
-              <ValueRow label={t('video.meanVelocity')} value={formatNumber(previewFlow.meanVelocity, 4)} unit="m/s" />
-              <ValueRow label={t('video.flow')} value={formatNumber(previewFlow.flow, 5)} unit="m³/s" />
-            </>
-          ) : null}
-          {lateralProfilePreview ? (
-            <ValueRow
-              label={t('video.lateralProfileFlow')}
-              value={formatNumber(lateralProfilePreview.flow, 5)}
-              unit="m³/s"
-              detail={`${lateralProfilePreview.columnsUsed}/${lateralProfilePreview.columnsTotal} ${t('video.lateralProfileColumns')}`}
-            />
-          ) : (
-            <Note tone="neutral">{t('video.lateralProfileUnavailable')}</Note>
-          )}
-          <ValueRow label={t('quality.uncertainty')} value={t('quality.uncertaintyWithheld')} withheld />
 
           <Button
             label={t('video.viewVectors')}
