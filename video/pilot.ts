@@ -233,7 +233,15 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
       probe.usableVectors >= SSIV_THRESHOLDS.minAcceptedVectors &&
       Number.isFinite(probe.medianDisplacementPx) &&
       probe.medianDisplacementPx >= 1 &&
-      probe.medianDisplacementPx <= MAX_USABLE_DISPLACEMENT_PX
+      probe.medianDisplacementPx <= MAX_USABLE_DISPLACEMENT_PX &&
+      // A rung already correlating below the floor cannot clear that same
+      // floor in the real run — every vector it produces is rejected by
+      // definition, so running there is a guaranteed refusal however well
+      // placed its displacement looks. Choosing on displacement alone did
+      // exactly that on a field clip: the 0.120 s rung won at correlation
+      // 0.27 with four usable vectors, over a 0.060 s rung sitting at 0.39
+      // with fourteen, and the run returned one vector out of a hundred.
+      probe.medianCorrelation >= SSIV_THRESHOLDS.minCorrelation
   );
 
   // A rung whose camera motion could not be measured is no use however good

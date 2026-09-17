@@ -230,6 +230,22 @@ describe('choosing the spacing to measure at', () => {
     expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
   });
 
+  it('will not run at a spacing its own correlation floor would refuse', () => {
+    // A field ladder, verbatim. The 0.120 s rung won on displacement alone —
+    // 7.66 px against a 6 px target — while correlating at 0.27 against a
+    // floor of 0.35, and the run it chose returned one vector out of a
+    // hundred. The 0.060 s rung it beat sat above the floor with fourteen
+    // usable vectors, and is where that water is measurable.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 3.39, medianCorrelation: 0.39, usableVectors: 14 }),
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 7.66, medianCorrelation: 0.27, usableVectors: 4, atSearchEdge: 2 }),
+      probe({ frameDeltaS: 0.24, medianDisplacementPx: 3.17, medianCorrelation: 0.29, usableVectors: 3, atSearchEdge: 2 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: Number.NaN, medianCorrelation: 0.28, usableVectors: 0, atSearchEdge: 4 }),
+      probe({ frameDeltaS: 0.96, medianDisplacementPx: 5.45, medianCorrelation: 0.29, usableVectors: 3, atSearchEdge: 2 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.06, 6);
+  });
+
   it('stays short when the rungs it would reach for have lost the pattern', () => {
     // A field ladder, verbatim, from a channel independently timed at
     // 0.83 m/s. Only the shortest rung had enough usable vectors to say
