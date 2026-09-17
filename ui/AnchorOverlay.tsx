@@ -51,6 +51,10 @@ export function AnchorOverlay({
       : null;
 
   const pair = analysis.stabilisation.find((candidate) => candidate.stable) ?? analysis.stabilisation[0];
+  // A measurement stored before this overlay existed has stabilisation entries
+  // with no anchors recorded at all, and reopening one must show the rest of
+  // its result rather than take the screen down with it.
+  const anchors = pair?.anchors ?? [];
 
   // Anchors are placed in the working (downscaled) resolution — scale up to
   // the video's own source pixels before going through the same display
@@ -61,10 +65,10 @@ export function AnchorOverlay({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none" onLayout={onLayout}>
-      {geometry && pair
+      {geometry && anchors.length > 0
         ? (
             <Svg width={size.width} height={size.height} style={StyleSheet.absoluteFill}>
-              {pair.anchors.map((anchor, index) => {
+              {anchors.map((anchor, index) => {
                 const point = sourceToDisplay({ x: anchor.x * scaleX, y: anchor.y * scaleY }, geometry);
                 if (!point) return null;
                 return (
