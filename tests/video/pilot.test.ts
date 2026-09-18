@@ -230,6 +230,36 @@ describe('choosing the spacing to measure at', () => {
     expect(chosen?.frameDeltaS).toBeCloseTo(0.48, 6);
   });
 
+  it('will not believe a rung that implies a fraction of the velocity its neighbours do', () => {
+    // A field ladder, verbatim. The 0.960 s rung read almost exactly what the
+    // 0.060 s rung read — 2.56 px against 2.54 — and won on being a hair
+    // nearer the target. Sixteen times the gap producing the same travel is
+    // proof the water had outrun that rung: it ran at a ceiling of 0.16 m/s
+    // on water the rest of the ladder put near 0.28.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 2.54, medianCorrelation: 0.43, usableVectors: 17 }),
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 3.88, medianCorrelation: 0.31, usableVectors: 6, atSearchEdge: 2 }),
+      probe({ frameDeltaS: 0.24, medianDisplacementPx: 9.09, medianCorrelation: 0.30, usableVectors: 5, atSearchEdge: 5 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: 23.15, medianCorrelation: 0.31, usableVectors: 7, atSearchEdge: 3 }),
+      probe({ frameDeltaS: 0.96, medianDisplacementPx: 2.56, medianCorrelation: 0.39, usableVectors: 15, atSearchEdge: 1 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.06, 6);
+  });
+
+  it('keeps the rungs whose implied velocities agree and settles those on displacement', () => {
+    // The same stream, a smaller ROI. Here the two short rungs agree within a
+    // factor of two and both are measuring; the three long ones are not. The
+    // choice belongs between the first two, on displacement.
+    const chosen = chooseSpacing([
+      probe({ frameDeltaS: 0.06, medianDisplacementPx: 2.10, medianCorrelation: 0.58, usableVectors: 20 }),
+      probe({ frameDeltaS: 0.12, medianDisplacementPx: 2.42, medianCorrelation: 0.50, usableVectors: 14, atSearchEdge: 3 }),
+      probe({ frameDeltaS: 0.24, medianDisplacementPx: 0.97, medianCorrelation: 0.50, usableVectors: 15 }),
+      probe({ frameDeltaS: 0.48, medianDisplacementPx: 1.53, medianCorrelation: 0.47, usableVectors: 20 }),
+      probe({ frameDeltaS: 0.96, medianDisplacementPx: 3.63, medianCorrelation: 0.44, usableVectors: 19 }),
+    ]);
+    expect(chosen?.frameDeltaS).toBeCloseTo(0.12, 6);
+  });
+
   it('will not run at a spacing its own correlation floor would refuse', () => {
     // A field ladder, verbatim. The 0.120 s rung won on displacement alone —
     // 7.66 px against a 6 px target — while correlating at 0.27 against a

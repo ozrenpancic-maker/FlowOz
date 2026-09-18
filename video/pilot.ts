@@ -244,13 +244,40 @@ export function chooseSpacing(probes: readonly SpacingProbe[]): SpacingProbe | n
       probe.medianCorrelation >= SSIV_THRESHOLDS.minCorrelation
   );
 
+  // Travel and time go together, so the rungs that are measuring the same
+  // water all imply the same velocity. A rung the water has outrun does not:
+  // its peak is somewhere inside the search range with no relation to the
+  // motion, and the velocity it implies comes back an order of magnitude
+  // short. Reading it as a displacement near the target is how a ladder ends
+  // up running at a spacing whose own ceiling is below the water's speed.
+  //
+  // Two field ladders from one stream, with the rung chosen on displacement
+  // alone marked:
+  //
+  //   2.54 px @ 0.060 s → 42 px/s      2.10 px @ 0.060 s → 35 px/s
+  //  *2.56 px @ 0.960 s →  3 px/s     *3.63 px @ 0.960 s →  4 px/s
+  //
+  // Both ran at 0.960 s, where the ceiling was 0.16 and 0.10 m/s against
+  // water measured at 0.28. The same displacement at sixteen times the gap
+  // is the proof it is not motion.
+  //
+  // Half the best rung's implied velocity is a generous line — those wrong
+  // rungs came back nine to sixteen times short — and it leaves rungs that
+  // genuinely disagree a little to be settled on displacement as before.
+  const impliedVelocity = (probe: SpacingProbe) => probe.medianDisplacementPx / probe.frameDeltaS;
+  const fastestImplied = qualified.reduce(
+    (best, probe) => Math.max(best, impliedVelocity(probe)),
+    0
+  );
+  const consistent = qualified.filter((probe) => impliedVelocity(probe) >= fastestImplied / 2);
+
   // A rung whose camera motion could not be measured is no use however good
   // its displacement looks, so those are set aside while any rung that did
   // stabilise remains. If none did, the run is going to fail on the camera
   // whatever is chosen, and the displacement is the only thing left to choose
   // on — better to fail with the spacing that at least saw the water.
-  const trackable = qualified.filter((probe) => probe.stabilised);
-  const preferred = trackable.length > 0 ? trackable : qualified;
+  const trackable = consistent.filter((probe) => probe.stabilised);
+  const preferred = trackable.length > 0 ? trackable : consistent;
 
   if (preferred.length > 0) {
     return preferred.reduce((best, probe) =>
